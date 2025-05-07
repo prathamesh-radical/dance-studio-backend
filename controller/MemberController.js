@@ -204,16 +204,28 @@ export const RenewMembership = async (req, res) => {
 
     try {
         db.query(
-            "INSERT INTO renew_customer (user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
+            "SELECT * FROM renew_customer WHERE joining_date = ? OR renew_date = ?", 
+            [joining_date, renew_date], 
             (err, result) => {
                 if (err) {
-                    return res.status(500).json({ message: "Error while renewing the subscription.", success: false });
+                    return res.status(500).json({ message: "Error checking existing customer", success: false });
                 }
-                if (result.affectedRows > 0) {
-                    return res.status(200).json({ message: "Membership renewed successfully", success: true });
-                } else {
-                    return res.status(404).json({ message: "No record found with the provided id", success: false });
+                if (result.length > 0) {
+                    return res.status(400).json({ message: "Membership is already renewed.", success: false });
                 }
+                db.query(
+                    "INSERT INTO renew_customer (user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
+                    (err, result) => {
+                        if (err) {
+                            return res.status(500).json({ message: "Error while renewing the subscription.", success: false });
+                        }
+                        if (result.affectedRows > 0) {
+                            return res.status(200).json({ message: "Membership renewed successfully", success: true });
+                        } else {
+                            return res.status(404).json({ message: "No record found with the provided id", success: false });
+                        }
+                    }
+                )
             }
         );
     } catch (error) {

@@ -187,7 +187,7 @@ export const RenewMembership = async (req, res) => {
         { key: 'membership_unit', label: 'Membership Unit' },
         { key: 'membership_price', label: 'Membership Price' },
         { key: 'renew_date', label: 'Renew Date' },
-        { key: 'payment', label: 'payment' },
+        { key: 'payment', label: 'Payment' },
         { key: 'user_id', label: 'User Id' },
     ];
 
@@ -204,8 +204,8 @@ export const RenewMembership = async (req, res) => {
 
     try {
         db.query(
-            "SELECT * FROM renew_customer WHERE joining_date = ? OR renew_date = ?", 
-            [joining_date, renew_date], 
+            "SELECT * FROM renew_customer WHERE user_id = ? AND (joining_date = ? OR joining_date = ? OR renew_date = ? OR renew_date = ?)", 
+            [user_id, joining_date, renew_date, joining_date, renew_date], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing customer", success: false });
@@ -214,7 +214,8 @@ export const RenewMembership = async (req, res) => {
                     return res.status(400).json({ message: "Membership is already renewed.", success: false });
                 }
                 db.query(
-                    "INSERT INTO renew_customer (user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
+                    "INSERT INTO renew_customer (user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", 
+                    [user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while renewing the subscription.", success: false });
@@ -225,10 +226,11 @@ export const RenewMembership = async (req, res) => {
                             return res.status(404).json({ message: "No record found with the provided id", success: false });
                         }
                     }
-                )
+                );
             }
         );
     } catch (error) {
+        console.log("error", error);
         return res.status(500).json({ message: "Internal Server Error", success: false });
     }
 };

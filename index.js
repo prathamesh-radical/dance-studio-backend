@@ -1,8 +1,6 @@
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
 import serveStatic from "serve-static";
 import db from "./db/db.js";
 import AuthAdminRoute from "./routes/AdminAuth.js";
@@ -25,7 +23,7 @@ app.use(express.json());
 db.getConnection((err) => {
     if (err) {
         console.error('Error connecting to MySQL:', err);
-        return;y
+        return;
     }
     console.log('Connected to the MySQL database!');
 });

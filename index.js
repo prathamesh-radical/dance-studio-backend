@@ -7,6 +7,8 @@ import AuthAdminRoute from "./routes/AdminAuth.js";
 import MemberRoute from "./routes/MemberRoute.js";
 import GetRoutes from "./routes/GetRoute.js";
 
+console.log("db", db);
+
 const STATIC_PATH =
     process.env.NODE_ENV === "production"
         ? `${process.cwd()}/frontend/dist`

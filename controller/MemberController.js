@@ -2,15 +2,15 @@ import db from "../db/db.js";
 import bcrypt from "bcrypt";
 
 export const AddMembership = async (req, res) => {
-    const { st_id, plan_name, duration, unit, price } = req.body;
+    const { plan_name, duration, unit, price } = req.body;
     const sql = `INSERT INTO membership (st_id, plan_name, duration, unit, price) VALUES (?, ?, ?, ?, ?)`;
 
-    if (!st_id || !plan_name || !duration || !unit || !price) {
+    if (!req?.query?.user_id || !plan_name || !duration || !unit || !price) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
     try {
-        db.query(sql, [ st_id, plan_name, duration, unit, price ], (err, result) => {
+        db.query(sql, [ req?.query?.user_id, plan_name, duration, unit, price ], (err, result) => {
             if (err) {
                 return res.status(500).json({ message: 'Server error', success: false });
             }
@@ -23,7 +23,7 @@ export const AddMembership = async (req, res) => {
 
 export const AddCustomer = async (req, res) => {
     const {
-        st_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date
+        first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date
     } = req.body;
 
     if (email) {
@@ -34,7 +34,6 @@ export const AddCustomer = async (req, res) => {
     }
 
     const requiredFields = [
-        { key: 'st_id', label: 'Studio ID' },
         { key: 'first_name', label: 'First Name' },
         { key: 'last_name', label: 'Last Name' },
         { key: 'phone_no', label: 'Phone Number' },
@@ -46,6 +45,11 @@ export const AddCustomer = async (req, res) => {
     let missingFields = requiredFields
         .filter(field => !req.body[field.key] || req.body[field.key].toString().trim() === '')
         .map(field => field.label);
+
+    const userIdFromBodyOrQuery = req.body.user_id || req.query.user_id;
+    if (!userIdFromBodyOrQuery || userIdFromBodyOrQuery.toString().trim() === '') {
+        missingFields.push('User Id');
+    }
 
     if (allergies === "Yes" && (!details || details.toString().trim() === '')) {
         missingFields.push('Details');
@@ -61,7 +65,7 @@ export const AddCustomer = async (req, res) => {
     try {
         db.query(
             "SELECT * FROM customer_registration WHERE phone_no = ? AND st_id = ?", 
-            [phone_no, st_id], 
+            [phone_no, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing customer", success: false });
@@ -72,7 +76,7 @@ export const AddCustomer = async (req, res) => {
 
                 db.query(
                     "INSERT INTO customer_registration (st_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    [st_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
+                    [req?.query?.user_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while registering customer", success: false });
@@ -83,7 +87,7 @@ export const AddCustomer = async (req, res) => {
                         if (membership_type || membership_duration || membership_unit || membership_price || joining_date || payment || expiry_date) {
                             db.query(
                                 "INSERT INTO renew_customer (user_id, st_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                                [customerId, st_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
+                                [customerId, req?.query?.user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
                                 (err, renewResult) => {
                                     if (err) {
                                         return res.status(500).json({ message: "Error while registering renewal", success: false });
@@ -105,7 +109,7 @@ export const AddCustomer = async (req, res) => {
 
 export const UpdateDetails = async (req, res) => {
     const {
-        st_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details
+        first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details
     } = req.body;
 
     if (email) {
@@ -116,7 +120,6 @@ export const UpdateDetails = async (req, res) => {
     }
 
     const requiredFields = [
-        { key: 'st_id', label: 'Studio ID' },
         { key: 'first_name', label: 'First Name' },
         { key: 'last_name', label: 'Last Name' },
         { key: 'phone_no', label: 'Phone Number' },
@@ -128,6 +131,11 @@ export const UpdateDetails = async (req, res) => {
     let missingFields = requiredFields
         .filter(field => !req.body[field.key] || req.body[field.key].toString().trim() === '')
         .map(field => field.label);
+
+    const userIdFromBodyOrQuery = req.body.user_id || req.query.user_id;
+    if (!userIdFromBodyOrQuery || userIdFromBodyOrQuery.toString().trim() === '') {
+        missingFields.push('User Id');
+    }
 
     if (allergies === "Yes" && (!details || details.toString().trim() === '')) {
         missingFields.push('Details');
@@ -142,7 +150,7 @@ export const UpdateDetails = async (req, res) => {
 
     try {
         db.query(
-            "UPDATE customer_registration SET first_name = ?, last_name = ?, email = ?, dob = ?, gender = ?, address = ?, city = ?, weight = ?, height = ?, emergency_first_name = ?, emergency_last_name = ?, relation = ?, emergency_phone_no = ?, allergies = ?, details = ? WHERE phone_no = ? AND st_id = ?", [first_name, last_name, email, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, phone_no, st_id],
+            "UPDATE customer_registration SET first_name = ?, last_name = ?, email = ?, dob = ?, gender = ?, address = ?, city = ?, weight = ?, height = ?, emergency_first_name = ?, emergency_last_name = ?, relation = ?, emergency_phone_no = ?, allergies = ?, details = ? WHERE phone_no = ? AND st_id = ?", [first_name, last_name, email, dob, gender, address, city, weight, height, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, phone_no, req?.query?.user_id],
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -160,7 +168,7 @@ export const UpdateDetails = async (req, res) => {
 };
 
 export const RenewMembership = async (req, res) => {
-    const { user_id, st_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, renew_date, expiry_date } = req.body;
+    const { user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, renew_date, expiry_date } = req.body;
 
     const requiredFields = [
         { key: 'membership_type', label: 'Membership Type' },
@@ -169,13 +177,17 @@ export const RenewMembership = async (req, res) => {
         { key: 'membership_price', label: 'Membership Price' },
         { key: 'payment', label: 'Payment' },
         { key: 'user_id', label: 'User Id' },
-        { key: 'st_id', label: 'Studio Id' },
         { key: 'expiry_date', label: 'Expiry Date' },
     ];
 
     let missingFields = requiredFields
         .filter(field => !req.body[field.key] || req.body[field.key].toString().trim() === '')
         .map(field => field.label);
+
+    const userIdFromBodyOrQuery = req.body.user_id || req.query.user_id;
+    if (!userIdFromBodyOrQuery || userIdFromBodyOrQuery.toString().trim() === '') {
+        missingFields.push('User Id');
+    }
 
     if (!joining_date && !renew_date) {
         missingFields.push('Joining Date or Renew Date (at least one is required)');
@@ -191,7 +203,7 @@ export const RenewMembership = async (req, res) => {
     try {
         db.query(
             "SELECT * FROM renew_customer WHERE user_id = ? AND st_id = ? AND (joining_date = ? OR joining_date = ? OR renew_date = ? OR renew_date = ?)", 
-            [user_id, st_id, joining_date, renew_date, joining_date, renew_date], 
+            [user_id, req?.query?.user_id, joining_date, renew_date, joining_date, renew_date], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing customer", success: false });
@@ -201,7 +213,7 @@ export const RenewMembership = async (req, res) => {
                 }
                 db.query(
                     "INSERT INTO renew_customer (user_id, st_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", 
-                    [user_id, st_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
+                    [user_id, req?.query?.user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, renew_date, payment, expiry_date],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while renewing the subscription.", success: false });
@@ -221,15 +233,15 @@ export const RenewMembership = async (req, res) => {
 };
 
 export const UpdateUserName = async (req, res) => {
-    const { id, first_name, last_name } = req.body;
+    const { first_name, last_name } = req.body;
 
-    if (!id || !first_name || !last_name) {
+    if (!req?.query?.user_id || !first_name || !last_name) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
     try {
         db.query(
-            "SELECT * FROM registration WHERE first_name = ? AND last_name = ? AND id = ?", [first_name, last_name, id], 
+            "SELECT * FROM registration WHERE first_name = ? AND last_name = ? AND id = ?", [first_name, last_name, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing user", success: false });
@@ -238,7 +250,7 @@ export const UpdateUserName = async (req, res) => {
                     return res.status(400).json({ message: "This name is already registered.", success: false });
                 }
                 db.query(
-                    "UPDATE registration SET first_name = ?, last_name = ? WHERE id = ?", [first_name, last_name, id],
+                    "UPDATE registration SET first_name = ?, last_name = ? WHERE id = ?", [first_name, last_name, req?.query?.user_id],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -258,15 +270,15 @@ export const UpdateUserName = async (req, res) => {
 };
 
 export const UpdateStudioName = async (req, res) => {
-    const { id, studio_name } = req.body;
+    const { studio_name } = req.body;
 
-    if (!id || !studio_name) {
+    if (!req?.query?.user_id || !studio_name) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
     try {
         db.query(
-            "SELECT * FROM registration WHERE studio_name = ? AND id = ?", [studio_name, id], 
+            "SELECT * FROM registration WHERE studio_name = ? AND id = ?", [studio_name, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing user", success: false });
@@ -275,7 +287,7 @@ export const UpdateStudioName = async (req, res) => {
                     return res.status(400).json({ message: "This studio name is already registered.", success: false });
                 }
                 db.query(
-                    "UPDATE registration SET studio_name = ? WHERE id = ?", [studio_name, id],
+                    "UPDATE registration SET studio_name = ? WHERE id = ?", [studio_name, req?.query?.user_id],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -295,9 +307,9 @@ export const UpdateStudioName = async (req, res) => {
 };
 
 export const UpdateUserNumber = async (req, res) => {
-    const { id, phone_number } = req.body;
+    const { phone_number } = req.body;
 
-    if (!id || !phone_number) {
+    if (!req?.query?.user_id || !phone_number) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
@@ -312,7 +324,7 @@ export const UpdateUserNumber = async (req, res) => {
                     return res.status(400).json({ message: "This phone number is already registered.", success: false });
                 }
                 db.query(
-                    "UPDATE registration SET phone_number = ? WHERE id = ?", [phone_number, id],
+                    "UPDATE registration SET phone_number = ? WHERE id = ?", [phone_number, req?.query?.user_id],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -332,15 +344,15 @@ export const UpdateUserNumber = async (req, res) => {
 };
 
 export const UpdateUserEmail = async (req, res) => {
-    const { id, email } = req.body;
+    const { email } = req.body;
 
-    if (!id || !email) {
+    if (!req?.query?.user_id || !email) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
     try {
         db.query(
-            "SELECT * FROM registration WHERE email = ? AND id = ?", [email, id], 
+            "SELECT * FROM registration WHERE email = ? AND id = ?", [email, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing user", success: false });
@@ -349,7 +361,7 @@ export const UpdateUserEmail = async (req, res) => {
                     return res.status(400).json({ message: "This email is already registered.", success: false });
                 }
                 db.query(
-                    "UPDATE registration SET email = ? WHERE id = ?", [email, id],
+                    "UPDATE registration SET email = ? WHERE id = ?", [email, req?.query?.user_id],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -369,15 +381,15 @@ export const UpdateUserEmail = async (req, res) => {
 };
 
 export const UpdateUserCountry = async (req, res) => {
-    const { id, country_name } = req.body;
+    const { country_name } = req.body;
 
-    if (!id || !country_name) {
+    if (!req?.query?.user_id || !country_name) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
     try {
         db.query(
-            "SELECT * FROM registration WHERE country_name = ? AND id = ?", [country_name, id], 
+            "SELECT * FROM registration WHERE country_name = ? AND id = ?", [country_name, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
                     return res.status(500).json({ message: "Error checking existing user", success: false });
@@ -386,7 +398,7 @@ export const UpdateUserCountry = async (req, res) => {
                     return res.status(400).json({ message: "This country is already registered.", success: false });
                 }
                 db.query(
-                    "UPDATE registration SET country_name = ? WHERE id = ?", [country_name, id],
+                    "UPDATE registration SET country_name = ? WHERE id = ?", [country_name, req?.query?.user_id],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while updating the existing data.", success: false });
@@ -406,9 +418,9 @@ export const UpdateUserCountry = async (req, res) => {
 };
 
 export const UpdateUserPassword = async (req, res) => {
-    const { id, password, confirm_password } = req.body;
+    const { password, confirm_password } = req.body;
 
-    if (!id || !password || !confirm_password) {
+    if (!req?.query?.user_id || !password || !confirm_password) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
 
@@ -417,7 +429,7 @@ export const UpdateUserPassword = async (req, res) => {
     }
 
     try {
-        db.query("SELECT * FROM registration WHERE id = ?", [id], (err, results) => {
+        db.query("SELECT * FROM registration WHERE id = ?", [req?.query?.user_id], (err, results) => {
             if (err) {
                 return res.status(500).json({ success: false, message: "An error occurred" });
             }
@@ -443,7 +455,7 @@ export const UpdateUserPassword = async (req, res) => {
                     }
 
                     const updateQuery = "UPDATE registration SET password = ? WHERE id = ?";
-                    db.query(updateQuery, [hashedPassword, id], (err, result) => {
+                    db.query(updateQuery, [hashedPassword, req?.query?.user_id], (err, result) => {
                         if (err) {
                             return res.status(500).json({ success: false, message: err || "An error occurred" });
                         }

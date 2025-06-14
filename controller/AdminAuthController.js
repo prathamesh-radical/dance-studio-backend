@@ -57,7 +57,7 @@ export const AdminLogin = async (req, res) => {
                         process.env.JWT_SECRET,
                         { expiresIn: "2h" }
                     );
-                    return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id, data: result[0] });
+                    return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id });
                 } else {
                     return res.status(401).json({ message: "Invalid Credential", success: false });
                 }

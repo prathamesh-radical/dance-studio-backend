@@ -2,7 +2,7 @@ import db from "../db/db.js";
 
 export const GetMembership = async (req, res) => {
     try {
-        db.query("SELECT * FROM membership", async (err, result) => {
+        db.query("SELECT * FROM membership WHERE st_id = ?", [req?.query?.user_id], async (err, result) => {
             if (err) {
                 return res.status(500).json({ message: "Error fetching values", success: false });
             }
@@ -15,7 +15,7 @@ export const GetMembership = async (req, res) => {
 
 export const GetCustomers = async (req, res) => {
     try {
-        db.query("SELECT * FROM customer_registration", async (err, result) => {
+        db.query("SELECT * FROM customer_registration WHERE st_id = ?", [req?.query?.user_id], async (err, result) => {
             if (err) {
                 return res.status(500).json({ message: "Error fetching values", success: false });
             }
@@ -28,7 +28,7 @@ export const GetCustomers = async (req, res) => {
 
 export const GetRenewData = async (req, res) => {
     try {
-        db.query("SELECT * FROM renew_customer", async (err, result) => {
+        db.query("SELECT * FROM renew_customer WHERE st_id = ?", [req?.query?.user_id], async (err, result) => {
             if (err) {
                 return res.status(500).json({ message: "Error fetching values", success: false });
             }
@@ -41,7 +41,7 @@ export const GetRenewData = async (req, res) => {
 
 export const GetUsersData = async (req, res) => {
     try {
-        db.query("SELECT * FROM registration", async (err, result) => {
+        db.query("SELECT * FROM registration WHERE id = ?", [req?.query?.user_id], async (err, result) => {
             if (err) {
                 return res.status(500).json({ message: "Error fetching values", success: false });
             }

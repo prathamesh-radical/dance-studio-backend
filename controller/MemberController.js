@@ -72,7 +72,6 @@ export const AddStudent = async (req, res) => {
             [phone_no, req?.query?.user_id], 
             (err, result) => {
                 if (err) {
-                    console.log("Error checking existing customer: ", err);
                     return res.status(500).json({ message: "Error checking existing customer", success: false });
                 }
                 if (result.length > 0) {
@@ -84,7 +83,6 @@ export const AddStudent = async (req, res) => {
                     [req?.query?.user_id, first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, dance_style, experience_level, goals, additional_notes, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, physical_limitations, medications, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
                     (err, result) => {
                         if (err) {
-                            console.log("Error while registering customer: ", err);
                             return res.status(500).json({ message: "Error while registering customer", success: false });
                         }
 
@@ -96,7 +94,6 @@ export const AddStudent = async (req, res) => {
                                 [customerId, req?.query?.user_id, membership_type, membership_duration, membership_unit, membership_price, joining_date, payment, expiry_date],
                                 (err, renewResult) => {
                                     if (err) {
-                                        console.log("Error while registering renewal: ", err);
                                         return res.status(500).json({ message: "Error while registering renewal", success: false });
                                     }
                                     return res.status(200).json({ message: "Customer registered successfully", success: true });
@@ -110,7 +107,6 @@ export const AddStudent = async (req, res) => {
             }
         );
     } catch (error) {
-        console.log("Error in AddStudent: ", error);
         return res.status(500).json({ message: "Internal Server Error", success: false });
     }
 };

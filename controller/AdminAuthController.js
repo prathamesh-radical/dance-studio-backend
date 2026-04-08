@@ -3,19 +3,23 @@ import jwt from "jsonwebtoken";
 import db from "../db/db.js";
 
 export const AdminRegister = async (req, res) => {
-    const { first_name, last_name, studio_name, phone_number, country_name, email, password, confirm_password } = req.body;
+    const { first_name, last_name, studio_name, phone_number, country_name, currency, email, password, confirm_password } = req.body;
 
     const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if(!emailPattern.test(email)) {
         return res.status(400).json({ message: "Please enter a valid email address.", success: false });
     }
 
-    if (!first_name || !last_name || !studio_name || !phone_number || !email || !password || !confirm_password) {
+    if (!first_name || !last_name || !studio_name || !phone_number || !email || !password || !confirm_password || !currency) {
         return res.status(400).json({ message: "All fields are required", success: false });
     }
     
     if (!country_name || typeof country_name !== 'string' || country_name.trim() === '' || !isNaN(country_name)) {
         return res.status(400).json({ message: "Please enter a valid country name", success: false });
+    }
+
+    if (!currency || typeof currency !== 'string' || currency.trim() === '') {
+        return res.status(400).json({ message: "Please select a valid currency", success: false });
     }
 
     if (password !== confirm_password) {
@@ -29,8 +33,8 @@ export const AdminRegister = async (req, res) => {
                 return res.status(400).json({ message: "User already exists", success: false });
             } else {
                 db.query(
-                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, email, password) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [first_name, last_name, studio_name, phone_number, country_name, email, hashedPassword],
+                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, currency, email, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [first_name, last_name, studio_name, phone_number, country_name, currency, email, hashedPassword],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while registering you", success: false });
@@ -61,7 +65,7 @@ export const AdminLogin = async (req, res) => {
                         process.env.JWT_SECRET,
                         { expiresIn: "2h" }
                     );
-                    return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id, studioName: result[0].studio_name });
+                    return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id, studioName: result[0].studio_name, currency: result[0].currency });
                 } else {
                     return res.status(401).json({ message: "Invalid Credential", success: false });
                 }
@@ -78,7 +82,7 @@ export const AdminLogin = async (req, res) => {
 export const UpdateProfile = async (req, res) => {
     const userId = req?.query?.user_id;
 
-    let { first_name, last_name, studio_name, phone_number, email, country_name, password, confirm_password } = req.body;
+    let { first_name, last_name, studio_name, phone_number, email, country_name, currency, password, confirm_password } = req.body;
 
     if (!userId) {
         return res.status(400).json({
@@ -139,6 +143,11 @@ export const UpdateProfile = async (req, res) => {
     if (country_name && typeof country_name === 'string' && country_name.trim() !== '' && isNaN(country_name)) {
         fieldsToUpdate.push("country_name = ?");
         values.push(country_name);
+    }
+
+    if (currency && typeof currency === 'string' && currency.trim() !== '') {
+        fieldsToUpdate.push("currency = ?");
+        values.push(currency);
     }
 
     if (cleanPassword && cleanConfirmPassword) {

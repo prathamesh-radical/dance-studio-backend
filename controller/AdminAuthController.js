@@ -104,7 +104,6 @@ export const UpdateProfile = (req, res) => {
 export const UpdateStudio = (req, res) => {
     const { studio_name, phone_number } = req.body;
     const userId = req?.query?.user_id;
-    console.log('body', req.body);
 
     if (!userId) {
         return res.status(400).json({ message: "User ID is required", success: false });
@@ -152,7 +151,7 @@ export const UpdatePreference = (req, res) => {
         values.push(currency);
     }
     if (country_name) {
-        fields.push("country_name_name = ?");
+        fields.push("country_name = ?");
         values.push(country_name);
     }
 
@@ -177,11 +176,11 @@ export const UpdatePassword = (req, res) => {
         return res.status(400).json({ message: "Password is required", success: false });
     }
 
-    if (password === confirm_password) {
-        return res.status(400).json({ message: "Password is Confirm Password should be same.", success: false });
+    if (password !== confirm_password) {
+        return res.status(400).json({ message: "Password and Confirm Password should be same.", success: false });
     }
 
-    db.query("SELECT password FROM users WHERE id = ?", [userId], async (err, results) => {
+    db.query("SELECT password FROM registration WHERE id = ?", [userId], async (err, results) => {
         if (err) {
             return res.status(500).json({ message: "Database error", success: false });
         }
@@ -192,7 +191,7 @@ export const UpdatePassword = (req, res) => {
 
         try {
             const hashedPassword = await bcrypt.hash(password, 10);
-            db.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId],
+            db.query("UPDATE registration SET password = ? WHERE id = ?", [hashedPassword, userId],
                 (updateErr, updateResults) => {
                     if (updateErr) {
                         return res.status(500).json({ message: "Database error", success: false });

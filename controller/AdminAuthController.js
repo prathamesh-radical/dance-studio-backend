@@ -3,23 +3,15 @@ import jwt from "jsonwebtoken";
 import db from "../db/db.js";
 
 export const AdminRegister = async (req, res) => {
-    const { first_name, last_name, studio_name, phone_number, country_name, currency, email, password, confirm_password } = req.body;
+    const { first_name, last_name, studio_name, phone_number, email, password, confirm_password } = req.body;
 
     const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if(!emailPattern.test(email)) {
         return res.status(400).json({ message: "Please enter a valid email address.", success: false });
     }
 
-    if (!first_name || !last_name || !studio_name || !phone_number || !email || !password || !confirm_password || !currency) {
+    if (!first_name || !last_name || !studio_name || !phone_number || !email || !password || !confirm_password) {
         return res.status(400).json({ message: "All fields are required", success: false });
-    }
-    
-    if (!country_name || typeof country_name !== 'string' || country_name.trim() === '' || !isNaN(country_name)) {
-        return res.status(400).json({ message: "Please enter a valid country name", success: false });
-    }
-
-    if (!currency || typeof currency !== 'string' || currency.trim() === '') {
-        return res.status(400).json({ message: "Please select a valid currency", success: false });
     }
 
     if (password !== confirm_password) {
@@ -33,8 +25,8 @@ export const AdminRegister = async (req, res) => {
                 return res.status(400).json({ message: "User already exists", success: false });
             } else {
                 db.query(
-                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, currency, email, password) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    [first_name, last_name, studio_name, phone_number, country_name, currency, email, hashedPassword],
+                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, email, password) VALUES (?, ?, ?, ?, ?, ?)",
+                    [first_name, last_name, studio_name, phone_number, email, hashedPassword],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while registering you", success: false });
@@ -63,7 +55,7 @@ export const AdminLogin = async (req, res) => {
                     const token = jwt.sign(
                         { id: result[0].id, email: result[0].email },
                         process.env.JWT_SECRET,
-                        { expiresIn: "2h" }
+                        { expiresIn: "3650d" }
                     );
                     return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id, studioName: result[0].studio_name, currency: result[0].currency });
                 } else {
@@ -79,107 +71,142 @@ export const AdminLogin = async (req, res) => {
     }
 };
 
-export const UpdateProfile = async (req, res) => {
+export const UpdateProfile = (req, res) => {
+    const { first_name, last_name, email } = req.body;
     const userId = req?.query?.user_id;
 
-    let { first_name, last_name, studio_name, phone_number, email, country_name, currency, password, confirm_password } = req.body;
+    if (!userId) {
+        return res.status(400).json({ message: "User ID is required", success: false });
+    }
+
+    if (!first_name && !last_name && !email) {
+        return res.status(400).json({ message: "At least one field is required", success: false });
+    }
+
+    try {
+        db.query(`UPDATE registration SET first_name = ?, last_name = ?, email = ? WHERE id = ?`,
+            [first_name, last_name, email, userId],
+            (err, results) => {
+                if (err) {
+                    return res.status(500).json({ message: "Database error", success: false });
+                }
+                if (results.affectedRows === 0) {
+                    return res.status(404).json({ message: "User not found", success: false });
+                }
+                return res.status(200).json({ message: "Profile updated successfully", success: true });
+            }
+        );
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error", success: false });
+    }
+};
+
+export const UpdateStudio = (req, res) => {
+    const { studio_name, phone_number } = req.body;
+    const userId = req?.query?.user_id;
+    console.log('body', req.body);
 
     if (!userId) {
-        return res.status(400).json({
-            message: "user_id query parameter is required",
-            success: false
-        });
+        return res.status(400).json({ message: "User ID is required", success: false });
     }
 
-    if (email) {
-        const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-        if (!emailPattern.test(email)) {
-            return res.status(400).json({ message: "Please enter a valid email address.", success: false });
-        }
+    if (!studio_name && !phone_number) {
+        return res.status(400).json({ message: "At least one field is required", success: false });
     }
 
-    const cleanPassword = password?.trim();
-    const cleanConfirmPassword = confirm_password?.trim();
+    try {
+        db.query(`UPDATE registration SET studio_name = ?, phone_number = ? WHERE id = ?`,
+            [studio_name, phone_number, userId],
+            (err, results) => {
+                if (err) {
+                    return res.status(500).json({ message: "Database error", success: false });
+                }
+                if (results.affectedRows === 0) {
+                    return res.status(404).json({ message: "User not found", success: false });
+                }
+                return res.status(200).json({ message: "Profile updated successfully", success: true });
+            }
+        );
+    } catch (error) {
+        return res.status(500).json({ message: "Internal server error", success: false });
+    }
+};
 
-    if (cleanPassword || cleanConfirmPassword) {
+export const UpdatePreference = (req, res) => {
+    const { currency, country_name } = req.body;
+    const userId = req?.query?.user_id;
 
-        if (!cleanPassword || !cleanConfirmPassword) {
-            return res.status(400).json({ message: "Both password and confirm_password are required", success: false });
-        }
-
-        if (cleanPassword !== cleanConfirmPassword) {
-            return res.status(400).json({ message: "Passwords do not match", success: false });
-        }
+    if (!userId) {
+        return res.status(400).json({ message: "User ID is required", success: false });
     }
 
-    const fieldsToUpdate = [];
+    if (!currency && !country_name) {
+        return res.status(400).json({ message: "At least one field is required", success: false });
+    }
+
+    const fields = [];
     const values = [];
 
-    if (first_name) {
-        fieldsToUpdate.push("first_name = ?");
-        values.push(first_name);
+    if (currency) {
+        fields.push("currency = ?");
+        values.push(currency);
     }
-
-    if (last_name) {
-        fieldsToUpdate.push("last_name = ?");
-        values.push(last_name);
-    }
-
-    if (studio_name) {
-        fieldsToUpdate.push("studio_name = ?");
-        values.push(studio_name);
-    }
-
-    if (phone_number) {
-        fieldsToUpdate.push("phone_number = ?");
-        values.push(phone_number);
-    }
-
-    if (email) {
-        fieldsToUpdate.push("email = ?");
-        values.push(email);
-    }
-
-    if (country_name && typeof country_name === 'string' && country_name.trim() !== '' && isNaN(country_name)) {
-        fieldsToUpdate.push("country_name = ?");
+    if (country_name) {
+        fields.push("country_name_name = ?");
         values.push(country_name);
     }
 
-    if (currency && typeof currency === 'string' && currency.trim() !== '') {
-        fieldsToUpdate.push("currency = ?");
-        values.push(currency);
-    }
-
-    if (cleanPassword && cleanConfirmPassword) {
-        try {
-            const hashedPassword = await bcrypt.hash(cleanPassword, 10);
-            fieldsToUpdate.push("password = ?");
-            values.push(hashedPassword);
-        } catch (err) {
-            return res.status(500).json({ message: "Error hashing the password", success: false });
-        }
-    }
-
-    if (fieldsToUpdate.length === 0) {
-        return res.status(400).json({ message: "At least one field is required.", success: false });
-    }
-
-    const updateQuery = `UPDATE registration SET ${fieldsToUpdate.join(", ")} WHERE id = ?`;
     values.push(userId);
 
-    try {
-        db.query(updateQuery, values, (err, result) => {
-            if (err) {
-                return res.status(500).json({ message: "Error while updating profile", success: false });
-            }
+    db.query(`UPDATE registration SET ${fields.join(", ")} WHERE id = ?`, values, (err, results) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", success: false });
+        }
+        if (results.affectedRows === 0) {
+            return res.status(404).json({ message: "User not found", success: false });
+        }
+        return res.status(200).json({ message: "Settings updated successfully", success: true });
+    });
+};
 
-            if (result.affectedRows > 0) {
-                return res.status(200).json({ message: "Profile updated successfully", success: true });
-            }
+export const UpdatePassword = (req, res) => {
+    const { password, confirm_password } = req.body;
+    const userId = req?.query?.user_id;
 
-            return res.status(404).json({ message: "No record found with the provided id", success: false });
-        });
-    } catch (error) {
-        return res.status(500).json({ message: "Internal Server Error", success: false });
+    if (!password && !confirm_password) {
+        return res.status(400).json({ message: "Password is required", success: false });
     }
+
+    if (password === confirm_password) {
+        return res.status(400).json({ message: "Password is Confirm Password should be same.", success: false });
+    }
+
+    db.query("SELECT password FROM users WHERE id = ?", [userId], async (err, results) => {
+        if (err) {
+            return res.status(500).json({ message: "Database error", success: false });
+        }
+
+        if (results.length === 0) {
+            return res.status(404).json({ message: "User not found", success: false });
+        }
+
+        try {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            db.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId],
+                (updateErr, updateResults) => {
+                    if (updateErr) {
+                        return res.status(500).json({ message: "Database error", success: false });
+                    }
+
+                    if (updateResults.affectedRows === 0) {
+                        return res.status(404).json({ message: "User not found", success: false });
+                    }
+
+                    return res.status(200).json({ message: "Password updated successfully", success: true });
+                }
+            );
+        } catch (error) {
+            return res.status(500).json({ message: "Error processing password", success: false });
+        }
+    });
 };

@@ -239,7 +239,7 @@ export const ForgotPassword = async (req, res) => {
                 secure: true, // Port 465 ke liye true, 587 ke liye false
                 auth: {
                     user: "nimjeprathamesh1@gmail.com",
-                    pass: "your-app-password",
+                    pass: "euzs wapg dspf jlyc",
                 },
                 tls: {
                     // Isse connection reject nahi hoga agar network resolve issue ho

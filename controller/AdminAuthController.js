@@ -7,7 +7,7 @@ export const AdminRegister = async (req, res) => {
     const { first_name, last_name, studio_name, phone_number, email, password, confirm_password } = req.body;
 
     const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if(!emailPattern.test(email)) {
+    if (!emailPattern.test(email)) {
         return res.status(400).json({ message: "Please enter a valid email address.", success: false });
     }
 
@@ -234,11 +234,17 @@ export const ForgotPassword = async (req, res) => {
 
             // 3. Setup Nodemailer
             const transporter = nodemailer.createTransport({
-                service: "gmail",
+                host: "smtp.gmail.com",
+                port: 465,
+                secure: true, // Port 465 ke liye true, 587 ke liye false
                 auth: {
                     user: "nimjeprathamesh1@gmail.com",
-                    pass: "euzs wapg dspf jlyc", // Gmail settings -> App Passwords se generate karein
+                    pass: "your-app-password",
                 },
+                tls: {
+                    // Isse connection reject nahi hoga agar network resolve issue ho
+                    rejectUnauthorized: false
+                }
             });
 
             const mailOptions = {

@@ -1,6 +1,7 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import db from "../db/db.js";
+import nodemailer from "nodemailer";
 
 export const AdminRegister = async (req, res) => {
     const { first_name, last_name, studio_name, phone_number, email, password, confirm_password } = req.body;
@@ -208,4 +209,79 @@ export const UpdatePassword = (req, res) => {
             return res.status(500).json({ message: "Error processing password", success: false });
         }
     });
+};
+
+const otpStore = new Map();
+
+export const ForgotPassword = async (req, res) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({ message: "Email is required", success: false });
+    }
+
+    try {
+        // 1. Check if user exists
+        db.query("SELECT * FROM registration WHERE email = ?", [email], async (err, result) => {
+            if (result.length === 0) {
+                return res.status(404).json({ message: "User not found with this email", success: false });
+            }
+
+            // 2. Generate 6 Digit OTP
+            const otp = Math.floor(100000 + Math.random() * 900000).toString();
+            otpStore.set(email, { otp, expires: Date.now() + 600000 }); // 10 mins expiry
+
+            // 3. Setup Nodemailer
+            const transporter = nodemailer.createTransport({
+                service: "gmail",
+                auth: {
+                    user: "nimjeprathamesh1@gmail.com",
+                    pass: "euzs wapg dspf jlyc", // Gmail settings -> App Passwords se generate karein
+                },
+            });
+
+            const mailOptions = {
+                from: "nimjeprathamesh1@gmail.com",
+                to: email,
+                subject: "Your OTP for Password Reset",
+                text: `Your OTP is ${otp}. It is valid for 10 minutes.`,
+                html: `<h3>Password Reset OTP</h3><p>Your OTP is <b>${otp}</b></p>`,
+            };
+
+            transporter.sendMail(mailOptions, (error, info) => {
+                if (error) {
+                    console.log(error);
+                    return res.status(500).json({ message: "Failed to send email", success: false });
+                }
+                return res.status(200).json({ message: "OTP sent successfully to your email", success: true });
+            });
+        });
+    } catch (error) {
+        return res.status(500).json({ message: "Internal Server Error", success: false });
+    }
+};
+
+export const VerifyOTP = async (req, res) => {
+    const { email, otp, newPassword } = req.body;
+
+    const storedData = otpStore.get(email);
+
+    if (!storedData || storedData.otp !== otp) {
+        return res.status(400).json({ message: "Invalid OTP", success: false });
+    }
+
+    if (Date.now() > storedData.expires) {
+        otpStore.delete(email);
+        return res.status(400).json({ message: "OTP Expired", success: false });
+    }
+
+    try {
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        db.query("UPDATE registration SET password = ? WHERE email = ?", [hashedPassword, email], (err, result) => {
+            otpStore.delete(email);
+            return res.status(200).json({ message: "Password updated successfully", success: true });
+        });
+    } catch (error) {
+        return res.status(500).json({ message: "Error updating password", success: false });
+    }
 };

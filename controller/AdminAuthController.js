@@ -223,6 +223,7 @@ export const ForgotPassword = async (req, res) => {
     try {
         // 1. Check if user exists
         db.query("SELECT * FROM registration WHERE email = ?", [email], async (err, result) => {
+            console.log("err", err);
             if (result.length === 0) {
                 return res.status(404).json({ message: "User not found with this email", success: false });
             }
@@ -257,6 +258,7 @@ export const ForgotPassword = async (req, res) => {
             });
         });
     } catch (error) {
+        console.log("error", error);
         return res.status(500).json({ message: "Internal Server Error", success: false });
     }
 };

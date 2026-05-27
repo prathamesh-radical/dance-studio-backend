@@ -15,7 +15,7 @@ const STATIC_PATH =
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
+const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "7000", 10);
 
 app.use(cors());
 app.use(express.json());

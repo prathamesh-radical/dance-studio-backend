@@ -139,7 +139,6 @@ export const AdminGoogleLogin = async (req, res) => {
     const firstName = String(googleUser.given_name || nameParts[0] || email.split("@")[0]).trim();
     const lastName = String(googleUser.family_name || nameParts.slice(1).join(" ")).trim();
 
-    let failedStage = "account_lookup";
     try {
         const [existingAccounts] = await db.promise().query(
             "SELECT id, email, studio_name, currency, profile_url FROM registration WHERE LOWER(email) = LOWER(?) LIMIT 1",
@@ -155,7 +154,6 @@ export const AdminGoogleLogin = async (req, res) => {
                 );
                 existingAccount.profile_url = profileUrl;
             }
-            failedStage = "session_token";
             return sendGoogleLoginSuccess(res, existingAccount);
         }
 
@@ -176,7 +174,6 @@ export const AdminGoogleLogin = async (req, res) => {
             });
         }
 
-        failedStage = "phone_lookup";
         const [phoneAccounts] = await db.promise().query(
             "SELECT id FROM registration WHERE phone_number = ? LIMIT 1",
             [phoneNumber]
@@ -185,15 +182,13 @@ export const AdminGoogleLogin = async (req, res) => {
             return res.status(409).json({ message: "This phone number is already associated with another account.", success: false });
         }
 
-        failedStage = "password_hash";
         const password = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
-        failedStage = "account_insert";
+
         const [insertResult] = await db.promise().query(
             "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, currency, email, password, profile_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [firstName, lastName, studioName, phoneNumber, countryName, currencyCode, email, password, profileUrl]
         );
 
-        failedStage = "session_token";
         return sendGoogleLoginSuccess(res, {
             id: insertResult.insertId,
             email,
@@ -202,13 +197,6 @@ export const AdminGoogleLogin = async (req, res) => {
             profile_url: profileUrl,
         }, "Account created successfully.");
     } catch (error) {
-        console.error("[Google sign-in] Completion failed", {
-            stage: failedStage,
-            code: error.code || "UNKNOWN",
-            errno: error.errno,
-            sqlState: error.sqlState,
-            message: error.code === "ER_DUP_ENTRY" ? "Duplicate key" : error.message,
-        });
         if (error.code === "ER_DUP_ENTRY") {
             return res.status(409).json({ message: "An account with these details already exists. Please sign in again.", success: false });
         }

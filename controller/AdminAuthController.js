@@ -1,13 +1,65 @@
 import bcrypt from "bcrypt";
+import { randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
+import { OAuth2Client } from "google-auth-library";
 import db from "../db/db.js";
-import nodemailer from "nodemailer";
+
+async function verifyGoogleUser(idToken, res) {
+    const googleClientId = process.env.GOOGLE_WEB_CLIENT_ID;
+
+    if (!googleClientId) {
+        res.status(500).json({ message: "Google sign-in is not configured on the server.", success: false });
+        return null;
+    }
+
+    if (!idToken) {
+        res.status(400).json({ message: "Google ID token is required.", success: false });
+        return null;
+    }
+
+    try {
+        const ticket = await new OAuth2Client(googleClientId).verifyIdToken({
+            idToken,
+            audience: googleClientId,
+        });
+        const googleUser = ticket.getPayload();
+
+        if (!googleUser?.email || googleUser.email_verified !== true) {
+            res.status(401).json({ message: "A verified Google email is required.", success: false });
+            return null;
+        }
+
+        return googleUser;
+    } catch (error) {
+        res.status(401).json({ message: "Invalid Google sign-in token.", success: false });
+        return null;
+    }
+}
+
+function sendGoogleLoginSuccess(res, user, message = "Login successful.") {
+    const token = jwt.sign(
+        { id: user.id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: "3650d" }
+    );
+
+    return res.status(200).json({
+        message,
+        success: true,
+        isNewUser: false,
+        token,
+        userId: user.id,
+        studioName: user.studio_name,
+        currency: user.currency,
+        profileUrl: user.profile_url,
+    });
+}
 
 export const AdminRegister = async (req, res) => {
     const { first_name, last_name, studio_name, phone_number, email, password, confirm_password } = req.body;
 
     const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-    if (!emailPattern.test(email)) {
+    if(!emailPattern.test(email)) {
         return res.status(400).json({ message: "Please enter a valid email address.", success: false });
     }
 
@@ -26,8 +78,8 @@ export const AdminRegister = async (req, res) => {
                 return res.status(400).json({ message: "User already exists", success: false });
             } else {
                 db.query(
-                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, email, password) VALUES (?, ?, ?, ?, ?, ?)",
-                    [first_name, last_name, studio_name, phone_number, email, hashedPassword],
+                    "INSERT INTO registration (first_name, last_name, studio_name, phone_number, email, password, profile_url) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [first_name, last_name, studio_name, phone_number, email, hashedPassword, ""],
                     (err, result) => {
                         if (err) {
                             return res.status(500).json({ message: "Error while registering you", success: false });
@@ -72,34 +124,136 @@ export const AdminLogin = async (req, res) => {
     }
 };
 
+export const AdminGoogleLogin = async (req, res) => {
+    const { idToken, studio_name, phone_number, country_name, currency } = req.body || {};
+    const studioName = typeof studio_name === "string" ? studio_name.trim() : "";
+    const phoneNumber = typeof phone_number === "string" ? phone_number.trim() : "";
+    const countryName = typeof country_name === "string" ? country_name.trim() : "";
+    const currencyCode = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+    const googleUser = await verifyGoogleUser(idToken, res);
+    if (!googleUser) return;
+    const email = googleUser.email.trim().toLowerCase();
+    const profileUrl = typeof googleUser.picture === "string" ? googleUser.picture : "";
+    const fullName = String(googleUser.name || "").trim();
+    const nameParts = fullName ? fullName.split(/\s+/) : [];
+    const firstName = String(googleUser.given_name || nameParts[0] || email.split("@")[0]).trim();
+    const lastName = String(googleUser.family_name || nameParts.slice(1).join(" ")).trim();
+
+    try {
+        const [existingAccounts] = await db.promise().query(
+            "SELECT id, email, studio_name, currency, profile_url FROM registration WHERE LOWER(email) = LOWER(?) LIMIT 1",
+            [email]
+        );
+        if (existingAccounts.length > 0) {
+            const existingAccount = existingAccounts[0];
+            if (profileUrl && profileUrl !== existingAccount.profile_url) {
+                await db.promise().query(
+                    "UPDATE registration SET profile_url = ? WHERE id = ?",
+                    [profileUrl, existingAccount.id]
+                );
+                existingAccount.profile_url = profileUrl;
+            }
+            return sendGoogleLoginSuccess(res, existingAccount);
+        }
+
+        const hasOnboardingDetails = Boolean(studioName || phoneNumber || countryName || currencyCode);
+        if (!hasOnboardingDetails) {
+            return res.status(200).json({
+                message: "Studio details are required to finish creating your account.",
+                success: true,
+                isNewUser: true,
+                userData: { email, firstName, lastName },
+            });
+        }
+
+        if (!studioName || !phoneNumber || !countryName || !currencyCode) {
+            return res.status(400).json({
+                message: "Studio name, phone number, country, and currency are required.",
+                success: false,
+            });
+        }
+
+        const [phoneAccounts] = await db.promise().query(
+            "SELECT id FROM registration WHERE phone_number = ? LIMIT 1",
+            [phoneNumber]
+        );
+        if (phoneAccounts.length > 0) {
+            return res.status(409).json({ message: "This phone number is already associated with another account.", success: false });
+        }
+
+        const password = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
+        const [insertResult] = await db.promise().query(
+            "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, currency, email, password, profile_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [firstName, lastName, studioName, phoneNumber, countryName, currencyCode, email, password, profileUrl]
+        );
+
+        return sendGoogleLoginSuccess(res, {
+            id: insertResult.insertId,
+            email,
+            studio_name: studioName,
+            currency: currencyCode,
+            profile_url: profileUrl,
+        }, "Account created successfully.");
+    } catch (error) {
+        if (error.code === "ER_DUP_ENTRY") {
+            return res.status(409).json({ message: "An account with these details already exists. Please sign in again.", success: false });
+        }
+        return res.status(500).json({ message: "Error completing Google sign-in.", success: false });
+    }
+};
+
 export const UpdateProfile = (req, res) => {
-    const { first_name, last_name, email } = req.body;
+    const {
+        first_name, last_name, email, studio_name, phone_number, country_name, currency,
+    } = req.body || {};
     const userId = req?.query?.user_id;
 
     if (!userId) {
         return res.status(400).json({ message: "User ID is required", success: false });
     }
 
-    if (!first_name && !last_name && !email) {
+    const profileFields = {
+        first_name,
+        last_name,
+        email,
+        studio_name,
+        phone_number,
+        country_name,
+        currency,
+    };
+    const fields = Object.entries(profileFields).filter(([, value]) => value !== undefined);
+    if (fields.length === 0) {
         return res.status(400).json({ message: "At least one field is required", success: false });
     }
 
-    try {
-        db.query(`UPDATE registration SET first_name = ?, last_name = ?, email = ? WHERE id = ?`,
-            [first_name, last_name, email, userId],
-            (err, results) => {
-                if (err) {
-                    return res.status(500).json({ message: "Database error", success: false });
+    const assignments = fields.map(([field]) => `${field} = ?`);
+    const values = fields.map(([, value]) => value);
+    values.push(userId);
+
+    db.query(
+        `UPDATE registration SET ${assignments.join(", ")} WHERE id = ?`,
+        values,
+        (err, results) => {
+            if (err) {
+                if (err.code === "ER_DUP_ENTRY") {
+                    return res.status(409).json({ message: "This email address is already associated with another account.", success: false });
                 }
-                if (results.affectedRows === 0) {
-                    return res.status(404).json({ message: "User not found", success: false });
-                }
-                return res.status(200).json({ message: "Profile updated successfully", success: true });
+                return res.status(500).json({ message: "Database error", success: false });
             }
-        );
-    } catch (error) {
-        return res.status(500).json({ message: "Internal server error", success: false });
-    }
+            if (results.affectedRows === 0) {
+                return db.query("SELECT id FROM registration WHERE id = ?", [userId], (lookupErr, users) => {
+                    if (lookupErr) {
+                        return res.status(500).json({ message: "Database error", success: false });
+                    }
+                    if (users.length === 0) {
+                        return res.status(404).json({ message: "User not found", success: false });
+                    }
+                    return res.status(200).json({ message: "Profile updated successfully", success: true });
+                });
+            }
+            return res.status(200).json({ message: "Profile updated successfully", success: true });
+        }
+    );
 };
 
 export const UpdateStudio = (req, res) => {
@@ -209,87 +363,4 @@ export const UpdatePassword = (req, res) => {
             return res.status(500).json({ message: "Error processing password", success: false });
         }
     });
-};
-
-const otpStore = new Map();
-
-export const ForgotPassword = async (req, res) => {
-    const { email } = req.body;
-
-    if (!email) {
-        return res.status(400).json({ message: "Email is required", success: false });
-    }
-
-    try {
-        // 1. Check if user exists
-        db.query("SELECT * FROM registration WHERE email = ?", [email], async (err, result) => {
-            console.log("err", err);
-            if (result.length === 0) {
-                return res.status(404).json({ message: "User not found with this email", success: false });
-            }
-
-            // 2. Generate 6 Digit OTP
-            const otp = Math.floor(100000 + Math.random() * 900000).toString();
-            otpStore.set(email, { otp, expires: Date.now() + 600000 }); // 10 mins expiry
-
-            // 3. Setup Nodemailer
-            const transporter = nodemailer.createTransport({
-                host: "smtp.gmail.com",
-                port: 465,
-                secure: true, // Port 465 ke liye true, 587 ke liye false
-                auth: {
-                    user: "nimjeprathamesh1@gmail.com",
-                    pass: "euzs wapg dspf jlyc",
-                },
-                tls: {
-                    // Isse connection reject nahi hoga agar network resolve issue ho
-                    rejectUnauthorized: false
-                }
-            });
-
-            const mailOptions = {
-                from: "nimjeprathamesh1@gmail.com",
-                to: email,
-                subject: "Your OTP for Password Reset",
-                text: `Your OTP is ${otp}. It is valid for 10 minutes.`,
-                html: `<h3>Password Reset OTP</h3><p>Your OTP is <b>${otp}</b></p>`,
-            };
-
-            transporter.sendMail(mailOptions, (error, info) => {
-                if (error) {
-                    console.log(error);
-                    return res.status(500).json({ message: "Failed to send email", success: false });
-                }
-                return res.status(200).json({ message: "OTP sent successfully to your email", success: true });
-            });
-        });
-    } catch (error) {
-        console.log("error", error);
-        return res.status(500).json({ message: "Internal Server Error", success: false });
-    }
-};
-
-export const VerifyOTP = async (req, res) => {
-    const { email, otp, newPassword } = req.body;
-
-    const storedData = otpStore.get(email);
-
-    if (!storedData || storedData.otp !== otp) {
-        return res.status(400).json({ message: "Invalid OTP", success: false });
-    }
-
-    if (Date.now() > storedData.expires) {
-        otpStore.delete(email);
-        return res.status(400).json({ message: "OTP Expired", success: false });
-    }
-
-    try {
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        db.query("UPDATE registration SET password = ? WHERE email = ?", [hashedPassword, email], (err, result) => {
-            otpStore.delete(email);
-            return res.status(200).json({ message: "Password updated successfully", success: true });
-        });
-    } catch (error) {
-        return res.status(500).json({ message: "Error updating password", success: false });
-    }
 };

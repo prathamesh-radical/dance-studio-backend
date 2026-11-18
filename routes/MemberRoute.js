@@ -1,13 +1,12 @@
 import express from 'express';
 import {
-    AddMembership, AddStudent, RenewMembership, UpdateDetails, UpdateStudioName, UpdateUserCountry, UpdateUserEmail, UpdateUserName, UpdateUserNumber, UpdateUserPassword
+    AddMembership, RenewMembership, UpdateDetails, UpdateStudioName, UpdateUserCountry, UpdateUserEmail, UpdateUserName, UpdateUserNumber, UpdateUserPassword
 } from '../controller/MemberController.js';
 import authenticateToken from '../middlewares/verifyToken.js';
 
 const MemberRoute = express.Router();
 
 MemberRoute.post("/addMembership", authenticateToken, AddMembership);
-MemberRoute.post("/addStudent", authenticateToken, AddStudent);
 MemberRoute.put("/updateDetails", authenticateToken, UpdateDetails);
 MemberRoute.post("/renewMembership", authenticateToken, RenewMembership);
 MemberRoute.put("/updateUserName", authenticateToken, UpdateUserName);

@@ -6,6 +6,11 @@ import db from "./db/db.js";
 import AuthAdminRoute from "./routes/AdminAuth.js";
 import MemberRoute from "./routes/MemberRoute.js";
 import GetRoutes from "./routes/GetRoute.js";
+import DanceRoute from "./routes/DanceRoute.js";
+import StudentRoute from "./routes/StudentRoute.js";
+import TrainerRoute from "./routes/TrainerRoute.js";
+import ClassRoute from "./routes/ClassRoute.js";
+import AttendancePaymentRoute from "./routes/AttendancePaymentRoute.js";
 
 const STATIC_PATH =
     process.env.NODE_ENV === "production"
@@ -15,7 +20,7 @@ const STATIC_PATH =
 dotenv.config();
 
 const app = express();
-const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "7000", 10);
+const PORT = parseInt(process.env.BACKEND_PORT || process.env.PORT || "3000", 10);
 
 app.use(cors());
 app.use(express.json());
@@ -35,6 +40,11 @@ app.get("/", (req, res) => {
 app.use("/api/auth", AuthAdminRoute);
 app.use("/api", MemberRoute);
 app.use("/api", GetRoutes);
+app.use("/api", DanceRoute);
+app.use("/api", StudentRoute);
+app.use("/api", TrainerRoute);
+app.use("/api", ClassRoute);
+app.use("/api", AttendancePaymentRoute);
 
 app.use(serveStatic(STATIC_PATH, { index: false }));
 

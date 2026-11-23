@@ -140,14 +140,14 @@ export const AdminGoogleLogin = async (req, res) => {
     const lastName = String(googleUser.family_name || nameParts.slice(1).join(" ")).trim();
 
     try {
-        const [existingAccounts] = await db.promise().query(
+        const [existingAccounts] = await db.query(
             "SELECT id, email, studio_name, currency, profile_url FROM registration WHERE LOWER(email) = LOWER(?) LIMIT 1",
             [email]
         );
         if (existingAccounts.length > 0) {
             const existingAccount = existingAccounts[0];
             if (profileUrl && profileUrl !== existingAccount.profile_url) {
-                await db.promise().query(
+                await db.query(
                     "UPDATE registration SET profile_url = ? WHERE id = ?",
                     [profileUrl, existingAccount.id]
                 );
@@ -173,7 +173,7 @@ export const AdminGoogleLogin = async (req, res) => {
             });
         }
 
-        const [phoneAccounts] = await db.promise().query(
+        const [phoneAccounts] = await db.query(
             "SELECT id FROM registration WHERE phone_number = ? LIMIT 1",
             [phoneNumber]
         );
@@ -183,7 +183,7 @@ export const AdminGoogleLogin = async (req, res) => {
 
         const password = await bcrypt.hash(randomBytes(32).toString("hex"), 10);
 
-        const [insertResult] = await db.promise().query(
+        const [insertResult] = await db.query(
             "INSERT INTO registration (first_name, last_name, studio_name, phone_number, country_name, currency, email, password, profile_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [firstName, lastName, studioName, phoneNumber, countryName, currencyCode, email, password, profileUrl]
         );

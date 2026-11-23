@@ -147,7 +147,6 @@ export const AdminGoogleLogin = async (req, res) => {
         if (existingAccounts.length > 0) {
             const existingAccount = existingAccounts[0];
             if (profileUrl && profileUrl !== existingAccount.profile_url) {
-                failedStage = "profile_update";
                 await db.promise().query(
                     "UPDATE registration SET profile_url = ? WHERE id = ?",
                     [profileUrl, existingAccount.id]
@@ -200,6 +199,7 @@ export const AdminGoogleLogin = async (req, res) => {
         if (error.code === "ER_DUP_ENTRY") {
             return res.status(409).json({ message: "An account with these details already exists. Please sign in again.", success: false });
         }
+        console.error("Error completing Google sign-in:", error);
         return res.status(500).json({ message: "Error completing Google sign-in.", success: false });
     }
 };

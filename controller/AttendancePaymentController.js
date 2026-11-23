@@ -206,6 +206,46 @@ export const GetStudentAttendanceHistory = async (req, res) => {
     }
 };
 
+export const GetTrainerAttendanceHistory = async (req, res) => {
+    const studioId = studioIdFromRequest(req);
+    const trainerId = Number(req.params.trainerId);
+    const from = req.query.from;
+    const to = req.query.to;
+    if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
+    if (!Number.isSafeInteger(trainerId) || trainerId < 1) {
+        return res.status(400).json({ success: false, message: "Trainer ID must be a positive whole number." });
+    }
+    if (!validDate(from) || !validDate(to) || from > to) {
+        return res.status(400).json({ success: false, message: "Enter a valid date range in YYYY-MM-DD format." });
+    }
+
+    try {
+        const trainers = await query(db,
+            `SELECT id, name, email, phone, status
+             FROM trainer WHERE id = ? AND user_id = ? LIMIT 1`,
+            [trainerId, String(studioId)]);
+        if (!trainers.length) {
+            return res.status(404).json({ success: false, message: "Trainer not found for this studio." });
+        }
+
+        const records = await query(db,
+            `SELECT id, attendance_date, status, notes
+             FROM trainer_attendance
+             WHERE st_id = ? AND trainer_id = ? AND attendance_date BETWEEN ? AND ?
+             ORDER BY attendance_date DESC`,
+            [studioId, trainerId, from, to]);
+        return res.status(200).json({
+            success: true,
+            from,
+            to,
+            trainer: trainers[0],
+            records,
+        });
+    } catch (error) {
+        return sendDatabaseError(res, "Loading trainer attendance history", error);
+    }
+};
+
 export const GetStudentAttendanceSummary = async (req, res) => {
     const studioId = studioIdFromRequest(req);
     if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
@@ -241,7 +281,7 @@ export const GetAttendanceReport = async (req, res) => {
     }
 
     try {
-        const [students, trainers, byClass, recent] = await Promise.all([
+        const [students, trainers, byClass, recentStudents, recentTrainers] = await Promise.all([
             query(db,
                 `SELECT attendance_date, status, COUNT(*) AS count
                  FROM student_attendance
@@ -273,32 +313,47 @@ export const GetAttendanceReport = async (req, res) => {
                  LIMIT 10`,
                 [from, to, studioId]),
             query(db,
-                `SELECT activity.attendance_date, activity.name, activity.status,
-                        activity.class_name, activity.person_type, activity.id
-                 FROM (
-                     SELECT attendance.id, attendance.attendance_date,
-                            CONCAT_WS(' ', students.first_name, students.last_name) AS name,
-                            attendance.status, students.selected_dance_style AS class_name,
-                            'Student' AS person_type
-                     FROM student_attendance AS attendance
-                     INNER JOIN add_students AS students
-                       ON students.id = attendance.student_id AND students.st_id = attendance.st_id
-                     WHERE attendance.st_id = ? AND attendance.attendance_date BETWEEN ? AND ?
-                     UNION ALL
-                     SELECT attendance.id, attendance.attendance_date, trainers.name,
-                            attendance.status, NULL AS class_name,
-                            'Trainer' AS person_type
-                     FROM trainer_attendance AS attendance
-                     INNER JOIN trainer AS trainers
-                       ON trainers.id = attendance.trainer_id
-                      AND trainers.user_id = CAST(attendance.st_id AS CHAR)
-                     WHERE attendance.st_id = ? AND attendance.attendance_date BETWEEN ? AND ?
-                 ) AS activity
-                 ORDER BY activity.attendance_date DESC, activity.id DESC
+                `SELECT attendance.id, attendance.attendance_date,
+                        CONCAT_WS(' ', students.first_name, students.last_name) AS name,
+                        attendance.status, students.selected_dance_style AS class_name,
+                        'Student' AS person_type
+                 FROM student_attendance AS attendance
+                 INNER JOIN add_students AS students
+                   ON students.id = attendance.student_id AND students.st_id = attendance.st_id
+                 WHERE attendance.st_id = ? AND attendance.attendance_date BETWEEN ? AND ?
+                 ORDER BY attendance.attendance_date DESC, attendance.id DESC
                  LIMIT 8`,
-                [studioId, from, to, studioId, from, to]),
+                [studioId, from, to]),
+            query(db,
+                `SELECT attendance.id, attendance.attendance_date, trainers.name,
+                        attendance.status, NULL AS class_name, 'Trainer' AS person_type
+                 FROM trainer_attendance AS attendance
+                 INNER JOIN trainer AS trainers
+                   ON trainers.id = attendance.trainer_id
+                  AND trainers.user_id = CAST(attendance.st_id AS CHAR)
+                 WHERE attendance.st_id = ? AND attendance.attendance_date BETWEEN ? AND ?
+                 ORDER BY attendance.attendance_date DESC, attendance.id DESC
+                 LIMIT 8`,
+                [studioId, from, to]),
         ]);
-        return res.status(200).json({ success: true, from, to, students, trainers, by_class: byClass, recent });
+        const recent = [...recentStudents, ...recentTrainers]
+            .sort((first, second) =>
+                new Date(second.attendance_date) - new Date(first.attendance_date) ||
+                Number(second.id) - Number(first.id))
+            .slice(0, 8);
+        return res.status(200).json({
+            success: true,
+            from,
+            to,
+            students,
+            trainers,
+            by_class: byClass,
+            recent,
+            recent_by_type: {
+                students: recentStudents,
+                trainers: recentTrainers,
+            },
+        });
     } catch (error) {
         return sendDatabaseError(res, "Loading attendance report", error);
     }

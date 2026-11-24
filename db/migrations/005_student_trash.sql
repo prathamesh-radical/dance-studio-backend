@@ -1,1 +1,0 @@
-ALTER TABLE add_students ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL;

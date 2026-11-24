@@ -1,0 +1,2 @@
+ALTER TABLE dance_style
+    ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL;

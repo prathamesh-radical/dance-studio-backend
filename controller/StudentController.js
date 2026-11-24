@@ -212,7 +212,7 @@ export const UpdateStudent = async (req, res) => {
     }
 
     db.query(
-        "SELECT id FROM add_students WHERE id = ? AND st_id = ? LIMIT 1",
+        "SELECT id FROM add_students WHERE id = ? AND st_id = ? AND deleted_at IS NULL LIMIT 1",
         [studentId, userId],
         (lookupError, students) => {
             if (lookupError) {
@@ -238,7 +238,7 @@ export const UpdateStudent = async (req, res) => {
                     const values = buildStudentValues(body, userId, validation.dates);
                     const updateColumns = studentColumns.slice(2);
                     db.query(
-                        `UPDATE add_students SET ${updateColumns.map(column => `${column} = ?`).join(", ")} WHERE id = ? AND st_id = ?`,
+                        `UPDATE add_students SET ${updateColumns.map(column => `${column} = ?`).join(", ")} WHERE id = ? AND st_id = ? AND deleted_at IS NULL`,
                         [...values.slice(2), studentId, userId],
                         (updateError) => {
                             if (updateError) {
@@ -257,6 +257,87 @@ export const UpdateStudent = async (req, res) => {
         },
     );
 };
+
+const normalizeStudentIds = values => {
+    if (!Array.isArray(values) || !values.length) return null;
+    const ids = [...new Set(values.map(Number))];
+    return ids.every(id => Number.isSafeInteger(id) && id > 0) ? ids : null;
+};
+
+export const GetTrashedStudents = (req, res) => {
+    const userId = authenticatedUserId(req);
+    if (!userId) {
+        return res.status(401).json({ message: "Authenticated user is required.", success: false });
+    }
+
+    db.query(
+        `SELECT id, first_name, last_name, deleted_at
+         FROM add_students
+         WHERE st_id = ? AND deleted_at IS NOT NULL
+         ORDER BY deleted_at DESC, id DESC`,
+        [userId],
+        (error, students) => {
+            if (error) {
+                console.error("Error fetching trashed students:", error);
+                return res.status(500).json({ message: "Unable to fetch student trash.", success: false });
+            }
+            return res.status(200).json({ students, success: true });
+        },
+    );
+};
+
+const updateStudentTrash = (req, res, { restore = false, permanent = false } = {}) => {
+    const userId = authenticatedUserId(req);
+    const { studentId, studentIds } = req.body || {};
+    const ids = normalizeStudentIds(Array.isArray(studentIds) ? studentIds : [studentId]);
+    if (!userId) {
+        return res.status(401).json({ message: "Authenticated user is required.", success: false });
+    }
+    if (!ids) {
+        return res.status(400).json({ message: "Valid student IDs are required.", success: false });
+    }
+
+    const placeholders = ids.map(() => "?").join(", ");
+    const query = permanent
+        ? `DELETE FROM add_students WHERE st_id = ? AND deleted_at IS NOT NULL AND id IN (${placeholders})`
+        : `UPDATE add_students
+           SET deleted_at = ${restore ? "NULL" : "CURRENT_TIMESTAMP"}
+           WHERE st_id = ? AND deleted_at ${restore ? "IS NOT NULL" : "IS NULL"} AND id IN (${placeholders})`;
+
+    db.query(query, [userId, ...ids], (error, result) => {
+        if (error) {
+            console.error(
+                permanent ? "Error permanently deleting students:" : restore ? "Error restoring students:" : "Error moving students to trash:",
+                error,
+            );
+            return res.status(500).json({
+                message: permanent
+                    ? "Unable to permanently delete students."
+                    : restore
+                        ? "Unable to restore students."
+                        : "Unable to move students to trash.",
+                success: false,
+            });
+        }
+        if (result.affectedRows === 0) {
+            return res.status(404).json({
+                message: restore || permanent ? "Student not found in trash." : "Student not found.",
+                success: false,
+            });
+        }
+
+        const count = result.affectedRows;
+        const action = permanent ? "permanently deleted" : restore ? "restored" : "moved to trash";
+        return res.status(200).json({
+            success: true,
+            message: count === 1 ? `Student ${action}.` : `${count} students ${action}.`,
+        });
+    });
+};
+
+export const MoveStudentToTrash = (req, res) => updateStudentTrash(req, res);
+export const RestoreStudent = (req, res) => updateStudentTrash(req, res, { restore: true });
+export const DeleteStudent = (req, res) => updateStudentTrash(req, res, { permanent: true });
 
 export const UpdateDetails = async (req, res) => {
     const {

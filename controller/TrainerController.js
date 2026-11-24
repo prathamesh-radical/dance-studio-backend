@@ -186,7 +186,7 @@ export const UpdateTrainer = (req, res) => {
 			name = ?, email = ?, phone = ?, dob = ?, gender = ?, emergency = ?, specialization = ?,
 			experience = ?, qualification = ?, about = ?, available_days = ?, available_slots = ?,
 			status = COALESCE(?, status)
-		WHERE id = ? AND user_id = ?`,
+		WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
 		[
 			normalizedName,
 			normalizedEmail,
@@ -248,7 +248,7 @@ export const GetTrainers = (req, res) => {
 			qualification, about,
 			available_days, available_slots, status
 		FROM trainer
-		WHERE user_id = ?
+		WHERE user_id = ? AND deleted_at IS NULL
 		ORDER BY name ASC`,
 		[String(userId)],
 		(error, trainers) => {
@@ -264,6 +264,129 @@ export const GetTrainers = (req, res) => {
 					available_days: parseJsonArray(trainer.available_days),
 					available_slots: parseJsonArray(trainer.available_slots),
 				})),
+			});
+		},
+	);
+};
+
+const normalizeTrainerIds = values => {
+	if (!Array.isArray(values) || !values.length) {
+		return null;
+	}
+	const ids = [...new Set(values.map(Number))];
+	return ids.every(id => Number.isSafeInteger(id) && id > 0) ? ids : null;
+};
+
+export const GetTrashedTrainers = (req, res) => {
+	const userId = req.user?.id;
+
+	if (!userId) {
+		return res.status(401).json({ message: "Authenticated user is required", success: false });
+	}
+
+	db.query(
+		`SELECT id, name, deleted_at
+		FROM trainer
+		WHERE user_id = ? AND deleted_at IS NOT NULL
+		ORDER BY deleted_at DESC`,
+		[String(userId)],
+		(error, trainers) => {
+			if (error) {
+				console.error('Error while fetching trashed trainers:', error);
+				return res.status(500).json({ message: "Unable to fetch trash", success: false });
+			}
+			return res.status(200).json({ success: true, trainers });
+		},
+	);
+};
+
+export const MoveTrainerToTrash = (req, res) => {
+	const userId = req.user?.id;
+	const { trainerId, trainerIds } = req.body || {};
+	const ids = normalizeTrainerIds(Array.isArray(trainerIds) ? trainerIds : [trainerId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid trainer IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`UPDATE trainer SET deleted_at = CURRENT_TIMESTAMP
+		WHERE user_id = ? AND deleted_at IS NULL AND id IN (${placeholders})`,
+		[String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error('Error while moving trainers to trash:', error);
+				return res.status(500).json({ message: "Unable to move trainers to trash", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Trainer not found", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Trainer moved to trash" : `${count} trainers moved to trash`,
+			});
+		},
+	);
+};
+
+export const RestoreTrainer = (req, res) => {
+	const userId = req.user?.id;
+	const { trainerId, trainerIds } = req.body || {};
+	const ids = normalizeTrainerIds(Array.isArray(trainerIds) ? trainerIds : [trainerId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid trainer IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`UPDATE trainer SET deleted_at = NULL
+		WHERE user_id = ? AND deleted_at IS NOT NULL AND id IN (${placeholders})`,
+		[String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error('Error while restoring trainers:', error);
+				return res.status(500).json({ message: "Unable to restore trainers", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Trainer not found in trash", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Trainer restored successfully" : `${count} trainers restored successfully`,
+			});
+		},
+	);
+};
+
+export const DeleteTrainer = (req, res) => {
+	const userId = req.user?.id;
+	const { trainerId, trainerIds } = req.body || {};
+	const ids = normalizeTrainerIds(Array.isArray(trainerIds) ? trainerIds : [trainerId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid trainer IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`DELETE FROM trainer WHERE user_id = ? AND deleted_at IS NOT NULL AND id IN (${placeholders})`,
+		[String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error('Error while permanently deleting trainers:', error);
+				return res.status(500).json({ message: "Unable to permanently delete trainers", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Trainer not found in trash", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Trainer permanently deleted" : `${count} trainers permanently deleted`,
 			});
 		},
 	);

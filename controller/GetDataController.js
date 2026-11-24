@@ -15,7 +15,7 @@ export const GetMembership = async (req, res) => {
 
 export const GetCustomers = async (req, res) => {
     try {
-        db.query("SELECT * FROM add_students WHERE st_id = ?", [req?.query?.user_id], async (err, result) => {
+        db.query("SELECT * FROM add_students WHERE st_id = ? AND deleted_at IS NULL", [req?.query?.user_id], async (err, result) => {
             if (err) {
                 return res.status(500).json({ message: "Error fetching values", success: false });
             }

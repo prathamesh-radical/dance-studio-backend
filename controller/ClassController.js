@@ -5,6 +5,16 @@ const statuses = new Set(["Active", "Inactive", "Draft"]);
 const frequencies = new Set(["Daily", "Weekly", "Monthly"]);
 const feeTypes = new Set(["Monthly", "Weekly", "Daily", "One Time"]);
 const weekdays = new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]);
+const classOwnershipCondition = `(
+	EXISTS (
+		SELECT 1 FROM trainer owned_trainer
+		WHERE owned_trainer.id = classes.trainer_id AND owned_trainer.user_id = ?
+	)
+	OR EXISTS (
+		SELECT 1 FROM dance_style owned_style
+		WHERE owned_style.user_id = ? AND owned_style.style = classes.dance_style
+	)
+)`;
 
 const isValidDate = value => {
 	if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -125,7 +135,7 @@ const validateClassData = body => {
 
 const validateClassReferences = (classData, userId, callback) => {
 	db.query(
-		"SELECT id FROM dance_style WHERE user_id = ? AND style = ? AND status = 'active' LIMIT 1",
+		"SELECT id FROM dance_style WHERE user_id = ? AND style = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1",
 		[String(userId), classData.dance_style],
 		(styleError, styles) => {
 			if (styleError) {
@@ -138,7 +148,7 @@ const validateClassReferences = (classData, userId, callback) => {
 			}
 
 			db.query(
-				"SELECT id FROM trainer WHERE id = ? AND user_id = ? AND status = 'active' LIMIT 1",
+				"SELECT id FROM trainer WHERE id = ? AND user_id = ? AND status = 'active' AND deleted_at IS NULL LIMIT 1",
 				[classData.trainer_id, String(userId)],
 				(trainerError, trainers) => {
 					if (trainerError) {
@@ -280,21 +290,10 @@ export const UpdateClass = (req, res) => {
 	}
 
 	const classData = validation.data;
-	const ownershipCondition = `(
-		EXISTS (
-			SELECT 1 FROM trainer owned_trainer
-			WHERE owned_trainer.id = classes.trainer_id AND owned_trainer.user_id = ?
-		)
-		OR EXISTS (
-			SELECT 1 FROM dance_style owned_style
-			WHERE owned_style.user_id = ? AND owned_style.style = classes.dance_style
-		)
-	)`;
-
 	db.query(
 		`SELECT total_capacity, available_seats
 		FROM classes
-		WHERE id = ? AND ${ownershipCondition}
+		WHERE id = ? AND deleted_at IS NULL AND ${classOwnershipCondition}
 		LIMIT 1`,
 		[classId, String(userId), String(userId)],
 		(classError, matchingClasses) => {
@@ -340,7 +339,7 @@ export const UpdateClass = (req, res) => {
 						total_capacity = ?, available_seats = ?, status = ?, frequency = ?, class_days = ?,
 						start_time = ?, end_time = ?, start_date = ?, end_date = ?, excluded_dates = ?,
 						fee_type = ?, fee_amount = ?, discount = ?, payable_amount = ?, additional_charges = ?
-					WHERE id = ? AND ${ownershipCondition}`,
+					WHERE id = ? AND deleted_at IS NULL AND ${classOwnershipCondition}`,
 					[
 						classData.class_name,
 						classData.dance_style,
@@ -393,13 +392,14 @@ export const GetClasses = (req, res) => {
 		LEFT JOIN trainer
 			ON trainer.id = classes.trainer_id
 			AND trainer.user_id = ?
-		WHERE trainer.id IS NOT NULL
+		WHERE classes.deleted_at IS NULL
+			AND (trainer.id IS NOT NULL
 			OR EXISTS (
 				SELECT 1
 				FROM dance_style
 				WHERE dance_style.user_id = ?
 					AND dance_style.style = classes.dance_style
-			)
+			))
 		ORDER BY classes.start_date DESC, classes.id DESC`,
 		[String(userId), String(userId)],
 		(error, classes) => {
@@ -409,6 +409,132 @@ export const GetClasses = (req, res) => {
 			}
 
 			return res.status(200).json({ classes, success: true });
+		},
+	);
+};
+
+const normalizeClassIds = values => {
+	if (!Array.isArray(values) || !values.length) return null;
+	const ids = [...new Set(values.map(Number))];
+	return ids.every(id => Number.isSafeInteger(id) && id > 0) ? ids : null;
+};
+
+export const GetTrashedClasses = (req, res) => {
+	const userId = req.user?.id;
+
+	if (!userId) {
+		return res.status(401).json({ message: "Authenticated user is required", success: false });
+	}
+
+	db.query(
+		`SELECT classes.id, classes.class_name, classes.deleted_at, trainer.name AS trainer_name
+		FROM classes
+		LEFT JOIN trainer
+			ON trainer.id = classes.trainer_id
+			AND trainer.user_id = ?
+		WHERE classes.deleted_at IS NOT NULL
+			AND ${classOwnershipCondition}
+		ORDER BY classes.deleted_at DESC`,
+		[String(userId), String(userId), String(userId)],
+		(error, classes) => {
+			if (error) {
+				console.error("Error fetching trashed classes:", error);
+				return res.status(500).json({ message: "Unable to fetch class trash", success: false });
+			}
+			return res.status(200).json({ classes, success: true });
+		},
+	);
+};
+
+export const MoveClassToTrash = (req, res) => {
+	const userId = req.user?.id;
+	const { classId, classIds } = req.body || {};
+	const ids = normalizeClassIds(Array.isArray(classIds) ? classIds : [classId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid class IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`UPDATE classes SET deleted_at = CURRENT_TIMESTAMP
+		WHERE ${classOwnershipCondition} AND deleted_at IS NULL AND id IN (${placeholders})`,
+		[String(userId), String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error("Error moving classes to trash:", error);
+				return res.status(500).json({ message: "Unable to move classes to trash", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Class not found", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Class moved to trash" : `${count} classes moved to trash`,
+			});
+		},
+	);
+};
+
+export const RestoreClass = (req, res) => {
+	const userId = req.user?.id;
+	const { classId, classIds } = req.body || {};
+	const ids = normalizeClassIds(Array.isArray(classIds) ? classIds : [classId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid class IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`UPDATE classes SET deleted_at = NULL
+		WHERE ${classOwnershipCondition} AND deleted_at IS NOT NULL AND id IN (${placeholders})`,
+		[String(userId), String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error("Error restoring classes:", error);
+				return res.status(500).json({ message: "Unable to restore classes", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Class not found in trash", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Class restored successfully" : `${count} classes restored successfully`,
+			});
+		},
+	);
+};
+
+export const DeleteClass = (req, res) => {
+	const userId = req.user?.id;
+	const { classId, classIds } = req.body || {};
+	const ids = normalizeClassIds(Array.isArray(classIds) ? classIds : [classId]);
+
+	if (!userId || !ids) {
+		return res.status(400).json({ message: "Valid class IDs are required", success: false });
+	}
+
+	const placeholders = ids.map(() => "?").join(", ");
+	db.query(
+		`DELETE FROM classes
+		WHERE ${classOwnershipCondition} AND deleted_at IS NOT NULL AND id IN (${placeholders})`,
+		[String(userId), String(userId), ...ids],
+		(error, result) => {
+			if (error) {
+				console.error("Error permanently deleting classes:", error);
+				return res.status(500).json({ message: "Unable to permanently delete classes", success: false });
+			}
+			if (result.affectedRows === 0) {
+				return res.status(404).json({ message: "Class not found in trash", success: false });
+			}
+			const count = result.affectedRows;
+			return res.status(200).json({
+				success: true,
+				message: count === 1 ? "Class permanently deleted" : `${count} classes permanently deleted`,
+			});
 		},
 	);
 };

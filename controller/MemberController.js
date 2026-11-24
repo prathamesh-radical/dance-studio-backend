@@ -68,7 +68,7 @@ export const UpdateDetails = async (req, res) => {
 
     try {
         db.query(
-            "UPDATE add_students SET first_name = ?, last_name = ?, email = ?, phone_no = ?, dob = ?, gender = ?, address = ?, city = ?, weight = ?, height = ?, dance_style = ?, level = ?, goals = ?, notes = ?, emergency_first_name = ?, emergency_last_name = ?, relation = ?, emergency_phone_no = ?, allergies = ?, details = ?, prev_injuries = ?, current_medication = ? WHERE phone_no = ? AND st_id = ?", 
+            "UPDATE add_students SET first_name = ?, last_name = ?, email = ?, phone_no = ?, dob = ?, gender = ?, address = ?, city = ?, weight = ?, height = ?, dance_style = ?, level = ?, goals = ?, notes = ?, emergency_first_name = ?, emergency_last_name = ?, relation = ?, emergency_phone_no = ?, allergies = ?, details = ?, prev_injuries = ?, current_medication = ? WHERE phone_no = ? AND st_id = ? AND deleted_at IS NULL",
             [first_name, last_name, email, phone_no, dob, gender, address, city, weight, height, dance_style, experience_level, goals, additional_notes, emergency_first_name, emergency_last_name, relation, emergency_phone_no, allergies, details, physical_limitations, medications, phone_no, req?.query?.user_id],
             (err, result) => {
                 if (err) {

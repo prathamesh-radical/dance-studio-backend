@@ -54,10 +54,23 @@ const dateFromQuery = value => {
     return validDate(value) ? value : null;
 };
 
+const validSalaryPeriod = value =>
+    typeof value === "string" &&
+    /^\d{4}-\d{2}$/.test(value) &&
+    validDate(`${value}-01`) &&
+    value <= new Date().toISOString().slice(0, 7);
+
 const sendDatabaseError = (res, operation, error) => {
     console.error(`${operation} failed:`, error);
-    const message = error.code === "ER_NO_SUCH_TABLE"
-        ? "Required database tables are missing. Apply backend/db/migrations/001_attendance_and_payments.sql and try again."
+    const isSalaryOperation = operation.toLowerCase().includes("trainer salary");
+    const isSalarySchemaError = isSalaryOperation ||
+        (error.code === "ER_NO_SUCH_TABLE" &&
+            `${error.message || ""} ${error.sqlMessage || ""}`.includes("trainer_salary_payments"));
+    const message = isSalarySchemaError &&
+        ["ER_NO_SUCH_TABLE", "ER_BAD_FIELD_ERROR"].includes(error.code)
+        ? "Trainer salary database schema is missing. Apply backend/db/migrations/006_trainer_salary.sql and try again."
+        : error.code === "ER_NO_SUCH_TABLE"
+            ? "Required database tables are missing. Apply backend/db/migrations/001_attendance_and_payments.sql and try again."
         : "The request could not be completed.";
     return res.status(500).json({ success: false, message });
 };
@@ -519,6 +532,152 @@ export const CollectStudentPayment = async (req, res) => {
     }
 };
 
+export const GetTrainerSalaryOverview = async (req, res) => {
+    const studioId = studioIdFromRequest(req);
+    const period = req.query.month || new Date().toISOString().slice(0, 7);
+    if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
+    if (!validSalaryPeriod(period)) {
+        return res.status(400).json({ success: false, message: "Salary month must be a valid month in YYYY-MM format and cannot be in the future." });
+    }
+
+    try {
+        const trainers = await query(db,
+            `SELECT trainers.id, trainers.name, trainers.status, trainers.monthly_salary,
+                    COALESCE(payments.salary_due, trainers.monthly_salary) AS salary_due,
+                    COALESCE(payments.amount_paid, 0) AS amount_paid,
+                    GREATEST(COALESCE(payments.salary_due, trainers.monthly_salary) - COALESCE(payments.amount_paid, 0), 0) AS amount_due,
+                    COALESCE(payments.payment_count, 0) AS payment_count
+             FROM trainer AS trainers
+             LEFT JOIN (
+                 SELECT trainer_id, MAX(salary_due) AS salary_due,
+                        SUM(amount) AS amount_paid, COUNT(*) AS payment_count
+                 FROM trainer_salary_payments
+                 WHERE st_id = ? AND salary_period = ?
+                 GROUP BY trainer_id
+             ) AS payments ON payments.trainer_id = trainers.id
+             WHERE trainers.user_id = ? AND trainers.deleted_at IS NULL
+             ORDER BY trainers.name`,
+            [studioId, `${period}-01`, String(studioId)]);
+        return res.status(200).json({ success: true, month: period, trainers });
+    } catch (error) {
+        return sendDatabaseError(res, "Loading trainer salary overview", error);
+    }
+};
+
+export const GetTrainerSalaryHistory = async (req, res) => {
+    const studioId = studioIdFromRequest(req);
+    const trainerId = req.query.trainer_id == null ? null : Number(req.query.trainer_id);
+    const period = req.query.month == null ? null : req.query.month;
+    if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
+    if (trainerId != null && (!Number.isSafeInteger(trainerId) || trainerId < 1)) {
+        return res.status(400).json({ success: false, message: "Trainer ID must be a positive whole number." });
+    }
+    if (period != null && !validSalaryPeriod(period)) {
+        return res.status(400).json({ success: false, message: "Salary month must be a valid month in YYYY-MM format and cannot be in the future." });
+    }
+
+    const conditions = ["payments.st_id = ?"];
+    const values = [studioId];
+    if (trainerId != null) {
+        conditions.push("payments.trainer_id = ?");
+        values.push(trainerId);
+    }
+    if (period != null) {
+        conditions.push("payments.salary_period = ?");
+        values.push(`${period}-01`);
+    }
+
+    try {
+        const payments = await query(db,
+            `SELECT payments.*, COALESCE(trainers.name, payments.trainer_name) AS trainer_name
+             FROM trainer_salary_payments AS payments
+             LEFT JOIN trainer AS trainers
+               ON trainers.id = payments.trainer_id AND trainers.user_id = payments.st_id
+             WHERE ${conditions.join(" AND ")}
+             ORDER BY payments.payment_date DESC, payments.id DESC
+             LIMIT 500`,
+            values);
+        return res.status(200).json({ success: true, payments });
+    } catch (error) {
+        return sendDatabaseError(res, "Loading trainer salary history", error);
+    }
+};
+
+export const PayTrainerSalary = async (req, res) => {
+    const studioId = studioIdFromRequest(req);
+    const { trainer_id: trainerIdValue, salary_period: period, payment_date: paymentDate,
+        payment_method: paymentMethod, notes } = req.body || {};
+    const trainerId = Number(trainerIdValue);
+    const amountText = String(req.body?.amount ?? "").trim();
+    const amount = Number(amountText);
+    const paymentMethods = new Set(["Cash", "Online", "Upi"]);
+
+    if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
+    if (!Number.isSafeInteger(trainerId) || trainerId < 1) {
+        return res.status(400).json({ success: false, message: "Select a valid trainer." });
+    }
+    if (!/^\d+(?:\.\d{1,2})?$/.test(amountText) || !Number.isFinite(amount) || amount <= 0 || amount > 99999999.99) {
+        return res.status(400).json({ success: false, message: "Payment amount must be greater than zero and have at most two decimal places." });
+    }
+    if (!validSalaryPeriod(period) || !validDate(paymentDate) || paymentDate > new Date().toISOString().slice(0, 10) ||
+        !paymentMethods.has(paymentMethod)) {
+        return res.status(400).json({ success: false, message: "Enter a valid salary month, payment date, and payment method." });
+    }
+    if (notes != null && (typeof notes !== "string" || notes.length > 1000)) {
+        return res.status(400).json({ success: false, message: "Payment notes must not exceed 1000 characters." });
+    }
+
+    try {
+        const payment = await withTransaction(async connection => {
+            const trainers = await query(connection,
+                `SELECT id, name, monthly_salary
+                 FROM trainer
+                 WHERE id = ? AND user_id = ? AND deleted_at IS NULL
+                 LIMIT 1 FOR UPDATE`,
+                [trainerId, String(studioId)]);
+            if (!trainers.length) {
+                const error = new Error("Trainer not found for this studio.");
+                error.statusCode = 404;
+                throw error;
+            }
+
+            const trainer = trainers[0];
+            const configuredSalary = Number(trainer.monthly_salary);
+            const existing = await query(connection,
+                `SELECT MAX(salary_due) AS salary_due, COALESCE(SUM(amount), 0) AS amount_paid
+                 FROM trainer_salary_payments
+                 WHERE st_id = ? AND trainer_id = ? AND salary_period = ?`,
+                [studioId, trainerId, `${period}-01`]);
+            const salaryDue = Number(existing[0]?.salary_due ?? configuredSalary);
+            const amountPaid = Number(existing[0]?.amount_paid ?? 0);
+            if (!Number.isFinite(salaryDue) || salaryDue <= 0) {
+                const error = new Error("Set a monthly salary for this trainer before recording a payment.");
+                error.statusCode = 400;
+                throw error;
+            }
+            const remainingDue = Math.max(0, Math.round((salaryDue - amountPaid) * 100) / 100);
+            if (amount > remainingDue) {
+                const error = new Error(`Payment exceeds the remaining salary due (${remainingDue.toFixed(2)}).`);
+                error.statusCode = 400;
+                throw error;
+            }
+
+            const receiptNumber = `TS-${randomUUID()}`;
+            const insert = await query(connection,
+                `INSERT INTO trainer_salary_payments
+                 (st_id, trainer_id, trainer_name, salary_period, salary_due, amount, payment_date, payment_method, receipt_number, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [studioId, trainerId, trainer.name, `${period}-01`, salaryDue.toFixed(2), amount.toFixed(2),
+                    paymentDate, paymentMethod, receiptNumber, notes?.trim() || null]);
+            return { id: insert.insertId, receipt_number: receiptNumber };
+        });
+        return res.status(201).json({ success: true, message: "Trainer salary payment recorded.", payment });
+    } catch (error) {
+        if (error.statusCode) return res.status(error.statusCode).json({ success: false, message: error.message });
+        return sendDatabaseError(res, "Recording trainer salary payment", error);
+    }
+};
+
 export const GetRevenueReport = async (req, res) => {
     const studioId = studioIdFromRequest(req);
     const from = req.query.from;
@@ -528,23 +687,70 @@ export const GetRevenueReport = async (req, res) => {
         return res.status(400).json({ success: false, message: "Enter a valid date range in YYYY-MM-DD format." });
     }
     try {
-        const [totals, daily, byType] = await Promise.all([
+        const [totals, daily, byType, salaryByTrainer] = await Promise.all([
             query(db,
                 `SELECT COUNT(*) AS payment_count, COALESCE(SUM(amount), 0) AS revenue
                  FROM student_payments WHERE st_id = ? AND payment_date BETWEEN ? AND ?`,
                 [studioId, from, to]),
             query(db,
-                `SELECT payment_date, COUNT(*) AS payment_count, COALESCE(SUM(amount), 0) AS revenue
-                 FROM student_payments WHERE st_id = ? AND payment_date BETWEEN ? AND ?
-                 GROUP BY payment_date ORDER BY payment_date`,
-                [studioId, from, to]),
+                `SELECT payment_date,
+                        SUM(payment_count) AS payment_count,
+                        SUM(revenue) AS revenue,
+                        SUM(salary_payment_count) AS salary_payment_count,
+                        SUM(salary_expense) AS salary_expense
+                 FROM (
+                     SELECT payment_date, COUNT(*) AS payment_count,
+                            COALESCE(SUM(amount), 0) AS revenue,
+                            0 AS salary_payment_count, 0 AS salary_expense
+                     FROM student_payments
+                     WHERE st_id = ? AND payment_date BETWEEN ? AND ?
+                     GROUP BY payment_date
+                     UNION ALL
+                     SELECT payment_date, 0 AS payment_count, 0 AS revenue,
+                            COUNT(*) AS salary_payment_count,
+                            COALESCE(SUM(amount), 0) AS salary_expense
+                     FROM trainer_salary_payments
+                     WHERE st_id = ? AND payment_date BETWEEN ? AND ?
+                     GROUP BY payment_date
+                 ) AS daily_activity
+                 GROUP BY payment_date
+                 ORDER BY payment_date`,
+                [studioId, from, to, studioId, from, to]),
             query(db,
                 `SELECT payment_type, COUNT(*) AS payment_count, COALESCE(SUM(amount), 0) AS revenue
                  FROM student_payments WHERE st_id = ? AND payment_date BETWEEN ? AND ?
                  GROUP BY payment_type ORDER BY revenue DESC, payment_type`,
                 [studioId, from, to]),
+            query(db,
+                `SELECT payments.trainer_id,
+                        COALESCE(MAX(trainers.name), MAX(payments.trainer_name)) AS trainer_name,
+                        COUNT(*) AS payment_count,
+                        COALESCE(SUM(payments.amount), 0) AS salary_expense
+                 FROM trainer_salary_payments AS payments
+                 LEFT JOIN trainer AS trainers
+                   ON trainers.id = payments.trainer_id AND trainers.user_id = payments.st_id
+                 WHERE payments.st_id = ? AND payments.payment_date BETWEEN ? AND ?
+                 GROUP BY payments.trainer_id
+                 ORDER BY salary_expense DESC, trainer_name`,
+                [studioId, from, to]),
         ]);
-        return res.status(200).json({ success: true, from, to, summary: totals[0], daily, by_type: byType });
+        const salaryExpense = salaryByTrainer.reduce((sum, trainer) => sum + Number(trainer.salary_expense || 0), 0);
+        const salaryPaymentCount = salaryByTrainer.reduce((sum, trainer) => sum + Number(trainer.payment_count || 0), 0);
+        const revenue = Number(totals[0].revenue || 0);
+        return res.status(200).json({
+            success: true,
+            from,
+            to,
+            summary: {
+                ...totals[0],
+                salary_payment_count: salaryPaymentCount,
+                salary_expense: salaryExpense,
+                net_revenue: revenue - salaryExpense,
+            },
+            daily,
+            by_type: byType,
+            salary_by_trainer: salaryByTrainer,
+        });
     } catch (error) {
         return sendDatabaseError(res, "Loading revenue report", error);
     }

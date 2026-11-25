@@ -15,6 +15,9 @@ import {
     GetStudentAttendanceSummary,
     GetTrainerAttendance,
     GetTrainerAttendanceHistory,
+    GetTrainerSalaryHistory,
+    GetTrainerSalaryOverview,
+    PayTrainerSalary,
     SaveStudentAttendance,
     SaveTrainerAttendance,
 } from "../controller/AttendancePaymentController.js";
@@ -34,6 +37,9 @@ AttendancePaymentRoute.get("/payments/summary", authenticateToken, GetPaymentSum
 AttendancePaymentRoute.get("/payments/history", authenticateToken, GetPaymentHistory);
 AttendancePaymentRoute.get("/payments/history/:id", authenticateToken, GetPaymentById);
 AttendancePaymentRoute.post("/payments/collect", authenticateToken, CollectStudentPayment);
+AttendancePaymentRoute.get("/trainer-salaries/history", authenticateToken, GetTrainerSalaryHistory);
+AttendancePaymentRoute.get("/trainer-salaries", authenticateToken, GetTrainerSalaryOverview);
+AttendancePaymentRoute.post("/trainer-salaries/pay", authenticateToken, PayTrainerSalary);
 AttendancePaymentRoute.get("/reports/summary", authenticateToken, GetReportSummary);
 AttendancePaymentRoute.get("/reports/enrollment", authenticateToken, GetEnrollmentReport);
 AttendancePaymentRoute.get("/reports/revenue", authenticateToken, GetRevenueReport);

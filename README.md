@@ -57,6 +57,14 @@ Get-Content .\db\migrations\005_student_trash.sql | mysql --host=localhost --use
 
 Trashed students are available at `GET /api/trash/students`, can be moved to trash with `PUT /api/trash-student`, restored with `PUT /api/restore-student`, and permanently removed with `DELETE /api/delete-student`.
 
+Trainer payroll requires the additive schema migration. Apply it once before deploying the payroll endpoints:
+
+```powershell
+Get-Content .\db\migrations\006_trainer_salary.sql | mysql --host=localhost --user=YOUR_USER --password YOUR_DATABASE
+```
+
+Set each trainer's fixed monthly salary through Add/Edit Trainer. `GET /api/trainer-salaries?month=YYYY-MM` returns monthly salary, paid-to-date, and remaining balances. Record full or partial payments with `POST /api/trainer-salaries/pay`; review transactions with `GET /api/trainer-salaries/history?trainer_id=ID`. The first payment for a month snapshots the monthly salary due, so later salary edits do not change that month's balance.
+
 Google sign-in is available at `POST /api/auth/google-login`. It accepts a Google `idToken`, verifies it against `GOOGLE_WEB_CLIENT_ID`, and signs in an existing registration with a matching verified email. For a new Google account, the endpoint responds with `success: true` and `isNewUser: true` without issuing a session. The app then asks for a studio name, phone number, country, and currency, and submits those details with the same token to this endpoint to create the account and start the session. The new registration stores the verified Google name, email, and profile picture URL.
 
 ## Added authenticated endpoints
@@ -72,8 +80,13 @@ Google sign-in is available at `POST /api/auth/google-login`. It accepts a Googl
 - `GET` / `api/payments/history`
 - `GET` / `api/payments/history/:id`
 - `POST` / `api/payments/collect`
+- `GET` / `api/trainer-salaries?month=YYYY-MM`
+- `GET` / `api/trainer-salaries/history?trainer_id=ID`
+- `POST` / `api/trainer-salaries/pay`
 - `GET` / `api/reports/summary`
 - `GET` / `api/reports/enrollment`
 - `GET` / `api/reports/revenue?from=YYYY-MM-DD&to=YYYY-MM-DD`
+
+Revenue reports preserve `summary.revenue` as gross student-fee collections and additionally include trainer salary expenses by payment date (`summary.salary_expense`, `summary.salary_payment_count`, `summary.net_revenue`, daily salary totals, and `salary_by_trainer`).
 
 All routes require the existing JWT bearer token. Studio ownership is derived from the token rather than a client-supplied studio ID.

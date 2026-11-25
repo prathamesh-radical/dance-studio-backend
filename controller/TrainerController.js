@@ -9,6 +9,15 @@ const normalizeOptionalText = value => {
 	return normalized || null;
 };
 
+const normalizeMonthlySalary = value => {
+	const salary = value == null || value === "" ? "0" : String(value).trim();
+	if (!/^\d+(?:\.\d{1,2})?$/.test(salary)) return null;
+	const amount = Number(salary);
+	return Number.isFinite(amount) && amount >= 0 && amount <= 99999999.99
+		? amount.toFixed(2)
+		: null;
+};
+
 export const AddTrainer = (req, res) => {
 	const {
 		name,
@@ -24,6 +33,7 @@ export const AddTrainer = (req, res) => {
 		status,
 		available_days: availableDays,
 		available_slots: availableSlots,
+		monthly_salary: monthlySalary,
 	} = req.body || {};
 	const userId = req.user?.id;
 	const normalizedName = normalizeOptionalText(name);
@@ -34,6 +44,7 @@ export const AddTrainer = (req, res) => {
 	const normalizedGender = normalizeOptionalText(gender);
 	const normalizedDob = normalizeOptionalText(dob);
 	const normalizedStatus = String(status ?? 'active').trim().toLowerCase();
+	const normalizedMonthlySalary = normalizeMonthlySalary(monthlySalary);
 	const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 	const allowedGenders = ['Male', 'Female', 'Other'];
 	const allowedStatuses = ['active', 'inactive'];
@@ -45,6 +56,9 @@ export const AddTrainer = (req, res) => {
 
 	if (!allowedStatuses.includes(normalizedStatus)) {
 		return res.status(400).json({ message: "Please select a valid trainer status", success: false });
+	}
+	if (normalizedMonthlySalary == null) {
+		return res.status(400).json({ message: "Monthly salary must be a non-negative amount with at most two decimal places", success: false });
 	}
 
 	if (!normalizedName || !normalizedEmail || !normalizedPhone || !normalizedSpecialization || experience === '' || experience == null || !availableDays?.length || !availableSlots?.length) {
@@ -78,8 +92,8 @@ export const AddTrainer = (req, res) => {
 	db.query(
 		`INSERT INTO trainer (
 			user_id, name, email, phone, dob, gender, emergency, specialization,
-			experience, qualification, about, available_days, available_slots, status
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			experience, qualification, about, available_days, available_slots, status, monthly_salary
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		[
 			String(userId),
 			normalizedName,
@@ -95,6 +109,7 @@ export const AddTrainer = (req, res) => {
 			JSON.stringify(availableDays),
 			JSON.stringify(availableSlots),
 			normalizedStatus,
+			normalizedMonthlySalary,
 		],
 		(error, result) => {
 			if (error) {
@@ -126,6 +141,7 @@ export const UpdateTrainer = (req, res) => {
 		status,
 		available_days: availableDays,
 		available_slots: availableSlots,
+		monthly_salary: monthlySalary,
 	} = req.body || {};
 	const userId = req.user?.id;
 	const trainerId = Number(req.params.id);
@@ -137,6 +153,7 @@ export const UpdateTrainer = (req, res) => {
 	const normalizedGender = normalizeOptionalText(gender);
 	const normalizedDob = normalizeOptionalText(dob);
 	const normalizedStatus = status == null ? null : String(status).trim().toLowerCase();
+	const normalizedMonthlySalary = monthlySalary == null ? null : normalizeMonthlySalary(monthlySalary);
 	const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 	const allowedGenders = ['Male', 'Female', 'Other'];
 	const allowedStatuses = ['active', 'inactive'];
@@ -151,6 +168,9 @@ export const UpdateTrainer = (req, res) => {
 
 	if (normalizedStatus !== null && !allowedStatuses.includes(normalizedStatus)) {
 		return res.status(400).json({ message: "Please select a valid trainer status", success: false });
+	}
+	if (monthlySalary != null && normalizedMonthlySalary == null) {
+		return res.status(400).json({ message: "Monthly salary must be a non-negative amount with at most two decimal places", success: false });
 	}
 
 	if (!normalizedName || !normalizedEmail || !normalizedPhone || !normalizedSpecialization || experience === '' || experience == null || !availableDays?.length || !availableSlots?.length) {
@@ -185,7 +205,7 @@ export const UpdateTrainer = (req, res) => {
 		`UPDATE trainer SET
 			name = ?, email = ?, phone = ?, dob = ?, gender = ?, emergency = ?, specialization = ?,
 			experience = ?, qualification = ?, about = ?, available_days = ?, available_slots = ?,
-			status = COALESCE(?, status)
+			status = COALESCE(?, status), monthly_salary = COALESCE(?, monthly_salary)
 		WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
 		[
 			normalizedName,
@@ -201,6 +221,7 @@ export const UpdateTrainer = (req, res) => {
 			JSON.stringify(availableDays),
 			JSON.stringify(availableSlots),
 			normalizedStatus,
+			normalizedMonthlySalary,
 			trainerId,
 			String(userId),
 		],
@@ -244,7 +265,7 @@ export const GetTrainers = (req, res) => {
 	}
 
 	db.query(
-		`SELECT id, name, email, phone, dob, gender, emergency, specialization, experience,
+		`SELECT id, name, email, phone, dob, gender, emergency, specialization, experience, monthly_salary,
 			qualification, about,
 			available_days, available_slots, status
 		FROM trainer

@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 import db from "../db/db.js";
+import { sendFirstLoginWelcomeEmail } from "../services/firstLoginWelcomeEmail.js";
 
 async function verifyGoogleUser(idToken, res) {
     const googleClientId = process.env.GOOGLE_WEB_CLIENT_ID;
@@ -36,12 +37,13 @@ async function verifyGoogleUser(idToken, res) {
     }
 }
 
-function sendGoogleLoginSuccess(res, user, message = "Login successful.") {
+async function sendGoogleLoginSuccess(res, user, message = "Login successful.") {
     const token = jwt.sign(
         { id: user.id, email: user.email },
         process.env.JWT_SECRET,
         { expiresIn: "3650d" }
     );
+    await sendFirstLoginWelcomeEmail(user);
 
     return res.status(200).json({
         message,
@@ -95,31 +97,47 @@ export const AdminRegister = async (req, res) => {
 };
 
 export const AdminLogin = async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body || {};
 
     try {
-        db.query("SELECT * FROM  registration WHERE email = ?", [email], async (err, result) => {
-            if (err) {
-                return res.status(500).json({ message: "Error fetching values", success: false });
-            }
-            if (result.length > 0) {
-                const isPasswordValid = await bcrypt.compare(password, result[0].password);
-                if (isPasswordValid) {
-                    const token = jwt.sign(
-                        { id: result[0].id, email: result[0].email },
-                        process.env.JWT_SECRET,
-                        { expiresIn: "3650d" }
-                    );
-                    return res.status(200).json({ message: "Login successfull.", success: true, token: token, userId: result[0].id, studioName: result[0].studio_name, currency: result[0].currency });
-                } else {
-                    return res.status(401).json({ message: "Invalid Credential", success: false });
-                }
-            }
-            else {
-                return res.status(401).json({ message: "Invalid Credential", success: false });
-            }
+        let result;
+        try {
+            [result] = await db.promise().query(
+                "SELECT * FROM registration WHERE email = ?",
+                [email]
+            );
+        } catch (error) {
+            console.error("Error fetching admin login account:", error);
+            return res.status(500).json({ message: "Error fetching values", success: false });
+        }
+
+        if (result.length === 0) {
+            return res.status(401).json({ message: "Invalid Credential", success: false });
+        }
+
+        const user = result[0];
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: "Invalid Credential", success: false });
+        }
+
+        const token = jwt.sign(
+            { id: user.id, email: user.email },
+            process.env.JWT_SECRET,
+            { expiresIn: "3650d" }
+        );
+        await sendFirstLoginWelcomeEmail(user);
+
+        return res.status(200).json({
+            message: "Login successfull.",
+            success: true,
+            token,
+            userId: user.id,
+            studioName: user.studio_name,
+            currency: user.currency,
         });
     } catch (error) {
+        console.error("Error during admin login:", error);
         return res.status(500).json({ message: "Internal Server Error", success: false });
     }
 };
@@ -141,7 +159,7 @@ export const AdminGoogleLogin = async (req, res) => {
 
     try {
         const [existingAccounts] = await db.promise().query(
-            "SELECT id, email, studio_name, currency, profile_url FROM registration WHERE LOWER(email) = LOWER(?) LIMIT 1",
+            "SELECT id, first_name, last_name, email, studio_name, currency, profile_url FROM registration WHERE LOWER(email) = LOWER(?) LIMIT 1",
             [email]
         );
         if (existingAccounts.length > 0) {
@@ -153,7 +171,7 @@ export const AdminGoogleLogin = async (req, res) => {
                 );
                 existingAccount.profile_url = profileUrl;
             }
-            return sendGoogleLoginSuccess(res, existingAccount);
+            return await sendGoogleLoginSuccess(res, existingAccount);
         }
 
         const hasOnboardingDetails = Boolean(studioName || phoneNumber || countryName || currencyCode);
@@ -188,8 +206,10 @@ export const AdminGoogleLogin = async (req, res) => {
             [firstName, lastName, studioName, phoneNumber, countryName, currencyCode, email, password, profileUrl]
         );
 
-        return sendGoogleLoginSuccess(res, {
+        return await sendGoogleLoginSuccess(res, {
             id: insertResult.insertId,
+            first_name: firstName,
+            last_name: lastName,
             email,
             studio_name: studioName,
             currency: currencyCode,

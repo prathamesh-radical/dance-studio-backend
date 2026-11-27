@@ -567,10 +567,14 @@ export const GetTrainerSalaryOverview = async (req, res) => {
 export const GetTrainerSalaryHistory = async (req, res) => {
     const studioId = studioIdFromRequest(req);
     const trainerId = req.query.trainer_id == null ? null : Number(req.query.trainer_id);
+    const paymentId = req.query.payment_id == null ? null : Number(req.query.payment_id);
     const period = req.query.month == null ? null : req.query.month;
     if (!studioId) return res.status(401).json({ success: false, message: "Authenticated studio is required." });
     if (trainerId != null && (!Number.isSafeInteger(trainerId) || trainerId < 1)) {
         return res.status(400).json({ success: false, message: "Trainer ID must be a positive whole number." });
+    }
+    if (paymentId != null && (!Number.isSafeInteger(paymentId) || paymentId < 1)) {
+        return res.status(400).json({ success: false, message: "Payment ID must be a positive whole number." });
     }
     if (period != null && !validSalaryPeriod(period)) {
         return res.status(400).json({ success: false, message: "Salary month must be a valid month in YYYY-MM format and cannot be in the future." });
@@ -578,6 +582,10 @@ export const GetTrainerSalaryHistory = async (req, res) => {
 
     const conditions = ["payments.st_id = ?"];
     const values = [studioId];
+    if (paymentId != null) {
+        conditions.push("payments.id = ?");
+        values.push(paymentId);
+    }
     if (trainerId != null) {
         conditions.push("payments.trainer_id = ?");
         values.push(trainerId);
@@ -589,7 +597,10 @@ export const GetTrainerSalaryHistory = async (req, res) => {
 
     try {
         const payments = await query(db,
-            `SELECT payments.*, COALESCE(trainers.name, payments.trainer_name) AS trainer_name
+            `SELECT payments.*,
+                    COALESCE(trainers.name, payments.trainer_name) AS trainer_name,
+                    trainers.phone AS trainer_phone,
+                    trainers.email AS trainer_email
              FROM trainer_salary_payments AS payments
              LEFT JOIN trainer AS trainers
                ON trainers.id = payments.trainer_id AND trainers.user_id = payments.st_id

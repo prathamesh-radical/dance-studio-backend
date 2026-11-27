@@ -11,13 +11,16 @@ Install dependencies with `npm install`, then configure these environment variab
 - `DB_PASSWORD`
 - `JWT_SECRET`
 - `GOOGLE_WEB_CLIENT_ID` (Google OAuth web client ID used to verify Google ID tokens)
+- `BREVO_API_KEY` (Brevo API key; `API_KEY` is also accepted for existing setups)
+- `BREVO_SENDER_EMAIL` (verified sender address in Brevo)
+- `BREVO_SENDER_NAME` (optional sender display name)
 - `BACKEND_PORT` (optional; defaults to `3000`)
 
 Start the API with `npm start`.
 
 ## Database migration
 
-The existing database schema remains unchanged. Attendance records and payment receipts require three additional tables. Apply the additive migration once before using those features:
+Attendance records and payment receipts require three additional tables. Apply the additive migration once before using those features:
 
 ```powershell
 Get-Content .\db\migrations\001_attendance_and_payments.sql | mysql --host=localhost --user=YOUR_USER --password YOUR_DATABASE
@@ -63,7 +66,15 @@ Trainer payroll requires the additive schema migration. Apply it once before dep
 Get-Content .\db\migrations\006_trainer_salary.sql | mysql --host=localhost --user=YOUR_USER --password YOUR_DATABASE
 ```
 
-Set each trainer's fixed monthly salary through Add/Edit Trainer. `GET /api/trainer-salaries?month=YYYY-MM` returns monthly salary, paid-to-date, and remaining balances. Record full or partial payments with `POST /api/trainer-salaries/pay`; review transactions with `GET /api/trainer-salaries/history?trainer_id=ID`. The first payment for a month snapshots the monthly salary due, so later salary edits do not change that month's balance.
+Set each trainer's fixed monthly salary through Add/Edit Trainer. `GET /api/trainer-salaries?month=YYYY-MM` returns monthly salary, paid-to-date, and remaining balances. Record full or partial payments with `POST /api/trainer-salaries/pay`; review transactions with `GET /api/trainer-salaries/history?trainer_id=ID`. The same history endpoint accepts `payment_id=ID` to retrieve a single studio-owned payment for its salary receipt. The first payment for a month snapshots the monthly salary due, so later salary edits do not change that month's balance.
+
+First-login welcome emails require one additive schema migration. Apply it once before deploying the updated authentication endpoints:
+
+```powershell
+Get-Content .\db\migrations\007_first_login_welcome_email.sql | mysql --host=localhost --user=YOUR_USER --password YOUR_DATABASE
+```
+
+The first successful password or Google sign-in sends a welcome email to the registered address through Brevo. The email is not sent again after Brevo accepts it. If the Brevo request fails, login still succeeds and the email remains eligible for retry on a later sign-in. Configure a verified `BREVO_SENDER_EMAIL`; the API key is only used by the backend.
 
 Google sign-in is available at `POST /api/auth/google-login`. It accepts a Google `idToken`, verifies it against `GOOGLE_WEB_CLIENT_ID`, and signs in an existing registration with a matching verified email. For a new Google account, the endpoint responds with `success: true` and `isNewUser: true` without issuing a session. The app then asks for a studio name, phone number, country, and currency, and submits those details with the same token to this endpoint to create the account and start the session. The new registration stores the verified Google name, email, and profile picture URL.
 
@@ -81,7 +92,7 @@ Google sign-in is available at `POST /api/auth/google-login`. It accepts a Googl
 - `GET` / `api/payments/history/:id`
 - `POST` / `api/payments/collect`
 - `GET` / `api/trainer-salaries?month=YYYY-MM`
-- `GET` / `api/trainer-salaries/history?trainer_id=ID`
+- `GET` / `api/trainer-salaries/history?trainer_id=ID` or `?payment_id=ID`
 - `POST` / `api/trainer-salaries/pay`
 - `GET` / `api/reports/summary`
 - `GET` / `api/reports/enrollment`

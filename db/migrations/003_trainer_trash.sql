@@ -1,0 +1,2 @@
+ALTER TABLE trainer
+    ADD COLUMN deleted_at DATETIME NULL DEFAULT NULL;

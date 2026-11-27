@@ -53,12 +53,8 @@ export async function sendFirstLoginWelcomeEmail(user) {
     const recipientName = [firstName, user.last_name]
         .filter(Boolean)
         .join(" ");
-    const studioName = String(user.studio_name || "").trim();
     const greeting = firstName || "there";
     const senderName = process.env.BREVO_SENDER_NAME || "Dance Studio Management";
-    const studioText = studioName
-        ? `Your ${studioName} account is ready to use.`
-        : "Your account is ready to use.";
 
     const message = {
         sender: {
@@ -69,9 +65,9 @@ export async function sendFirstLoginWelcomeEmail(user) {
             email: user.email,
             ...(recipientName ? { name: recipientName } : {}),
         }],
-        subject: "Welcome to Dance Studio Management",
-        htmlContent: `<html><body><p>Hello ${escapeHtml(greeting)},</p><p>Welcome to Dance Studio Management. ${escapeHtml(studioText)}</p><p>You can now sign in and manage your studio.</p><p>Regards,<br>${escapeHtml(senderName)}</p></body></html>`,
-        textContent: `Hello ${greeting},\n\nWelcome to Dance Studio Management. ${studioText}\n\nYou can now sign in and manage your studio.\n\nRegards,\n${senderName}`,
+        subject: "Welcome to Dance Studio Management!",
+        htmlContent: `<html><body><p>Hello ${escapeHtml(greeting)},</p><p>Welcome to <strong>Dance Studio Management!</strong> 🎉</p><p>We're excited to have you on board! Your account has been successfully created, and your studio management journey starts here.</p><p>With Dance Studio Management, you can easily manage students, trainers, classes, attendance, fees, salary payments, and much more — all in one place.</p><p>We're here to help you save time, stay organized, and focus on what you love most: growing your dance studio!</p><p><strong>Let's make managing your studio easier than ever!</strong></p><p>Best Regards,<br><strong>Team Dance Studio Management</strong></p></body></html>`,
+        textContent: `Hello ${greeting},\n\nWelcome to Dance Studio Management! 🎉\n\nWe're excited to have you on board! Your account has been successfully created, and your studio management journey starts here.\n\nWith Dance Studio Management, you can easily manage students, trainers, classes, attendance, fees, salary payments, and much more — all in one place.\n\nWe're here to help you save time, stay organized, and focus on what you love most: growing your dance studio!\n\nLet's make managing your studio easier than ever!\n\nBest Regards,\nTeam Dance Studio Management`,
     };
 
     const controller = new AbortController();
